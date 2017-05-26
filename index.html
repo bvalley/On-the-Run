@@ -1588,8 +1588,9 @@ function coinHandler()
 						direction = -1;
 				
 					this.array[x] = new coinObject(sourceX, sourceY, x, direction);
-											
-					this.currentCoinCount++;//How many are on screen
+										
+					if(myGamePiece.coins < 30)
+						this.currentCoinCount++;//How many are on screen
 					
 					newSpotAdded = true;
 				}
