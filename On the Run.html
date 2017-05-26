@@ -1,0 +1,4454 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<style>
+p.serif {font-family:"Segoe UI", Tahoma, sans-serif; font-size: 75%;}
+
+canvas {
+    //border:1px solid #d3d3d3;
+    background-color: #f7f7f7;
+}
+
+h1 {
+  color: #333;
+  font-size: 1.6em;
+  font-weight: normal;
+  line-height: 1.25em;
+  margin-bottom: 16px;
+}
+</style>
+</head>
+<body bgcolor = "#f7f7f7", onload="startGame()">
+<div id="height"></div>
+<div id="width"></div>
+<canvas id="canvas" width="600" height="270" ></canvas>
+<script>
+
+
+var debugMode = false;
+var gameState = 0; 
+
+var myGamePiece;
+var bullets;
+var highScore = 0;
+
+//Resetable Items
+var level = 0;
+var score = 0;
+var totalBulletLimit = 10;
+var currentBullets = totalBulletLimit;
+var totalHealthLimit = 4;
+var currentHealth = totalHealthLimit;
+var haveCarPart = false;
+var gameOverHud = false;
+var inverted = false;
+var invertedTrigger = false;
+
+//Sound
+var jumpSound = new Audio("Jump.wav");
+var shootSound = new Audio("Shoot.wav");
+var footStepSound = new Audio("Footsteps.wav");
+var ptsSound = new Audio("100pts.wav");
+var explosionSound = new Audio("Explosion.wav");
+var hitSound = new Audio("Hit.wav");
+var landingSound = new Audio("Landing.wav");
+var healthSound = new Audio("Health.wav");
+var reloadSound = new Audio("Reload.wav");
+var openSound = new Audio("Open.wav");
+var cointSound = new Audio("Coint.wav");
+var cointBounceSound = new Audio("CointBounce.wav");
+var lineBusySound = new Audio("phone beep.wav");
+var phoneRingSound = new Audio("phone ring.wav");
+var carFix = new Audio("Fixing The Car.wav");
+var carBreak = new Audio("Breaking the car.wav");
+var warningSound = new Audio("Incoming Sound.wav");	
+var truckSound = new Audio("Truck.wav");
+var carFixedSound = new Audio("CarFixed.wav");
+var carStartedSound = new Audio("CarStarted.wav");	
+var carSound = new Audio("Car.wav");
+var driveAwaySound = new Audio("DriveAway.wav");	
+var carbreakDownSound = new Audio("Car Break down.wav");			
+
+function startGame() 
+{
+    myGamePiece = new player(20, 23, 80, 100);
+	bullets = new bulletHandler();
+	enemies = new enemyHandler();
+	back = new background();
+	hud = new hudObject;
+	clouds = new cloudsHandler();
+	startImage = new intro();
+	gOobject = new gameoverObject();
+	crate = new crateHandler();
+	coint = new coinHandler(); 
+	payphone = new payphoneObject();
+	car = new carObject();
+	truck = new truckObject();
+	counters = new counterHandler();
+
+    myGameArea.start();
+}
+
+function isGoodTime(time)//The time parameter tells you how slow you want it to slow down.
+{
+	myGameArea.timeReference = new Date();
+	myGameArea.currentTime = myGameArea.timeReference.getTime();
+			
+	if(myGameArea.currentTime - myGameArea.elapsedTime > time)
+	{
+		myGameArea.timeReference = new Date();
+		myGameArea.elapsedTime = myGameArea.timeReference.getTime();
+		return true;
+	}				
+	return false;
+}
+
+var myGameArea = 
+{
+    canvas : document.getElementById("canvas"),
+    start : function() 
+	{
+		this.canvas.style.marginLeft = "auto";
+		this.canvas.style.marginRight = "auto";
+		this.canvas.style.display= 'block';
+		this.context = this.canvas.getContext("2d");
+		this.context.scale(2,2);
+
+		this.context.mozImageSmoothingEnabled = false;
+	    this.context.webkitImageSmoothingEnabled = false;
+	    this.context.msImageSmoothingEnabled = false;
+	    this.context.imageSmoothingEnabled = false;
+		this.slowDown = false; //For when your dying
+		this.timeReference = new Date();
+		this.elapsedTime = this.timeReference.getTime();
+		this.currentTime = this.timeReference.getTime();
+		
+
+       	document.body.insertBefore(this.canvas, document.body.childNodes[0]);
+
+		//In order to center the window
+		formElement = document.getElementById("height");
+		formElement.addEventListener('change', heightChanged, true);
+
+		formElement = document.getElementById("width");
+		formElement.addEventListener('change', widthChanged, false);
+		
+		this.frameNo = 0;
+       	this.interval = setInterval(updateGameArea, 20);		
+		
+		window.addEventListener('keydown', function (e) 
+		{
+			myGameArea.keys = (myGameArea.keys || []);
+			myGameArea.keys[e.keyCode] = (e.type == "keydown");
+		})
+			
+        window.addEventListener('keyup', function (e) 
+		{
+			if(e.keyCode == 32)
+				myGamePiece.pressedShoot = false;
+			else if(e.keyCode == 40)
+				myGamePiece.pressedDown = false;
+			
+			car.pressedKey = false;
+			
+			myGameArea.keys[e.keyCode] = (e.type == "keydown");            
+        })
+
+		this.canvas.addEventListener("mousedown", gameOverButton, false);
+		
+		ctx = myGameArea.context;
+    }, 
+
+    clear : function() 
+	{ 
+		this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+	},	
+	
+	onVisibilityChange: function(e) //For pausing when not in focus
+	{
+		if (document.hidden || document.webkitHidden || e.type == 'blur' || document.visibilityState != 'visible') 
+			this.stop();
+		else
+			this.play();
+	},
+	
+    stop : function() 
+	{
+        clearInterval(this.interval);
+    }
+}
+
+
+
+function widthChanged(e) 
+{
+  var target = e.target;
+  myGameArea.canvas.width = target.value;
+  drawScreen();
+}
+
+function heightChanged(e) 
+{
+  var target = e.target;
+  myGameArea.canvas.height = target.value;
+  drawScreen();
+}
+
+//---------PLAYER---------------------------------------
+
+function player(width, height, x, y) 
+{    	
+	this.image = new Image();	
+    this.image.src = "Player sprite sheet.png";
+	
+	this.blinkImage = new Image();
+	this.blinkImage.src = "blink.png";
+    
+	this.state = 0;
+	/*
+		0 = stand
+		1 = run1
+		2 = run2
+		3 = jump
+	*/
+
+	this.onGround = true;
+
+	
+	this.width = width;		//For collisions
+    this.height = height;
+	this.Xpad = 5;			//Making the hitbox smaller by subtraction
+    this.speedX = 0;
+    this.speedY = 0;    
+    this.x = x;			//Window x and y
+    this.y = y; 
+	this.spriteX = 1;	//The start is standing to the right.
+	this.spriteY = 1;
+	this.spriteSizeY = 23;
+	this.spriteSizeX = 20;
+
+	this.gravity = .85;
+	this.maximumVelocity = 8;
+	this.movementSpeed = 3;
+	this.timeReference = new Date();
+	this.elapsedTime = this.timeReference.getTime();
+    this.currentTime = this.timeReference.getTime();
+	this.animationSpeed = 70;
+	this.right = true;
+	this.pressedShoot = false;
+	this.pressedDown = false;
+	this.airFriction = .18;
+	
+	this.hitAir = false;
+	this.hitTrigger = false;
+	this.hit = false;
+	this.hitDirection = 0;
+	this.landSoundTrigger = true;
+	
+	this.blinkON = true;
+	this.blinkLimit = 25;
+	this.blinkCounter = 0;
+	this.heldScore = 0;
+
+	this.dead = false;
+	this.gameOver = false;
+	this.allowInput = true; //Allows for player Input
+	this.bounce = false;
+	
+	this.blinkSpeed = 60;
+	this.blinkTimeReference = new Date();
+	this.blinkElapsedTime = this.blinkTimeReference.getTime();
+    this.blinkCurrentTime = this.blinkTimeReference.getTime();
+	this.currentDownArrow = -1;
+	/*
+		-1 - Nothing
+		>= 0 - Currently on top of said crate
+		-2 - PhoneBooth
+		-3 - Car
+		
+	*/
+	this.coins = 0;
+
+	this.update = function() 
+	{
+		if(this.onGround)
+		{
+			if(this.speedX != 0)//RUNNING
+			{		
+				if(this.state == 3)
+				{ 
+					if(this.right)	
+						this.state = 5;
+					else
+						this.state = 1;
+				}
+			
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentTime - this.elapsedTime > this.animationSpeed)
+				{
+					this.timeReference = new Date();
+					this.elapsedTime = this.timeReference.getTime();
+
+					footStepSound.play();
+										
+					if(currentBullets == 0)//With gun or without one?
+						this.spriteY = 	1;
+					else
+						this.spriteY = 49;
+					
+					this.spriteX = 22;
+					
+					switch(this.state)
+					{
+						case 1:	//runL2
+							this.spriteY += 24;
+							this.spriteX += 21;
+							this.state = 2;
+							break;
+						
+						case 2:	//runL1
+							this.spriteY += 24;
+							this.state = 1;
+							break;
+							
+						case 6:	//runR2
+							this.spriteX += 21;
+							this.state = 5;
+							break;
+							
+						case 5:	//runR1
+							
+							this.state = 6;
+							break;
+					}
+				}
+			}
+			else //STANDING
+			{
+				if(!this.gameOver)
+				{
+					if(currentBullets == 0)//With gun or without one?
+						this.spriteY = 	1;
+					else
+						this.spriteY = 49;
+						
+						this.spriteX = 1;
+				
+				
+					if(this.right == true)
+						this.state = 4;
+					else
+					{
+						this.spriteY += 24;
+						this.state = 0;
+					}
+				}
+				else
+				{
+					this.state = 8;
+
+					this.spriteX = 1;
+					this.spriteY = 193;
+					this.spriteSizeX = 25;
+					
+					if(this.hitDirection < 0)
+						this.spriteX =+ 27;
+				}
+			}
+		}
+		else //JUMPING
+		{
+			this.state = 3;
+			this.spriteX = 1;
+
+			if(!this.hitAir)
+			{
+				this.spriteY = 97;
+				
+				if(currentBullets == 0)
+					this.spriteX += 21;
+			}
+			else 
+			{
+
+				//FIX THESE NUMBERS and booleans
+				if(!this.bounce)
+				{
+					if(!this.dead)//Hit flying back
+						this.spriteY = 121;
+					else //Dead flying back
+						this.spriteY = 145;
+
+					if(this.speedX < 0)
+						this.spriteX += 21;
+				}
+				else //Bounce
+				{
+					this.spriteY = 169;
+					this.spriteSizeX = 23;
+ 
+					if(this.speedX < 0)
+						this.spriteX += 24;
+				}
+			}
+			
+		}
+		
+		if(this.hit)
+		{
+			this.blinkTimeReference = new Date();
+			this.blinkCurrentTime = this.blinkTimeReference.getTime();
+
+			if(this.blinkCurrentTime - this.blinkElapsedTime > this.blinkSpeed)
+			{
+				this.blinkTimeReference = new Date();
+				this.blinkElapsedTime = this.blinkTimeReference.getTime();
+				
+				this.blinkCounter++;
+				this.blinkON = !this.blinkON;
+				this.changeSprite = false;	
+								
+				if(this.blinkCounter == this.blinkLimit)
+				{
+					this.blinkCounter = 0;
+					this.blinkON = true;
+					this.hit = false;
+				}
+			}
+		
+			if(!this.blinkON)
+				ctx.drawImage(this.image, this.spriteX, this.spriteY, 20, 23, this.x, this.y, 20, 23);
+			else
+				ctx.drawImage(this.blinkImage, this.spriteX, this.spriteY, 20, 23, this.x, this.y, 20, 23);
+
+		}
+		else
+			ctx.drawImage(this.image, this.spriteX, this.spriteY, this.spriteSizeX, this.spriteSizeY, this.x, this.y, this.spriteSizeX, this.spriteSizeY);
+
+	}
+	
+	this.justDraw = function() 
+	{
+		if(this.hit)
+		{	
+			if(!this.blinkON)
+				ctx.drawImage(this.image, this.spriteX, this.spriteY, 20, 23, this.x, this.y, 20, 23);
+			else
+				ctx.drawImage(this.blinkImage, this.spriteX, this.spriteY, 20, 23, this.x, this.y, 20, 23);
+		}
+		else
+			ctx.drawImage(this.image, this.spriteX, this.spriteY, this.spriteSizeX, this.spriteSizeY, this.x, this.y, this.spriteSizeX, this.spriteSizeY);
+	}
+
+    this.newPos = function() 
+	{
+		//COLLISION Checking
+		if(!this.hitAir && !this.hit)
+		{
+			var collision = false; //Any collisions with the enemies?
+
+			if(truck.truckState == 3)
+			{
+				//Truck Collision
+				for(c = 0; c < truck.hitBoxNumber; c++)
+				{	
+					//Truck Collision
+					//If you are viable to be hit by two things in one frame, cancel out now.
+					this.rightMovement = (!this.hitAir && !this.hit && truck.direction == 1
+					&& this.x + this.Xpad < truck.x + truck.array[c].xWidth + (truck.array[c].xOffsetFromOrigin*truck.direction)
+					&& this.x + this.width - this.Xpad > truck.x + (truck.array[c].xOffsetFromOrigin*truck.direction)
+					&& this.y < truck.y  + truck.array[c].yHeight + truck.array[c].yOffsetFromOrigin
+					&& this.y + this.height > truck.y + truck.array[c].yOffsetFromOrigin);
+					
+					this.leftMovement = (!this.hitAir && !this.hit && truck.direction == -1
+					&& this.x + this.Xpad < truck.x + truck.array[c].xWidth - Math.abs(truck.array[(c+1)%3].xOffsetFromOrigin)
+					&& this.x + this.width - this.Xpad > truck.x - Math.abs(truck.array[(c+1)%3].xOffsetFromOrigin)
+					&& this.y < truck.y  + truck.array[c].yHeight + truck.array[c].yOffsetFromOrigin
+					&& this.y + this.height > truck.y + truck.array[c].yOffsetFromOrigin); //the c+1 % 3 is a specific workaround that works.
+										
+					if(this.leftMovement || this.rightMovement)//To make this if statement easier to read.
+					{
+					 	collision = true;
+						
+						if(this.onGround == true)
+						{	
+							this.onGround = false;
+							this.y++;
+						}
+						
+						this.hitAir = true;
+						this.hitTrigger = true;
+						this.blinkON = true;
+						
+						if(car.UIstate > 1 && car.UIstate <= 4) //If you get hit by a truck and you fixed a part, it shouldn't reset.
+						{
+							myGamePiece.allowInput = true;
+							car.UIstate = 0;
+						}
+						
+						this.speedY = -9;
+
+						if(this.x < truck.x)
+						{
+							this.hitDirection = -1;
+							this.speedX = -this.movementSpeed*3; 
+						}	
+						else
+						{
+							this.hitDirection = 1;
+							this.speedX = this.movementSpeed*3; 
+						}
+						
+						if(this.movementSpeed+this.x > (myGameArea.canvas.width/2+5) || this.movementSpeed+this.x < 0)
+							this.speedX = -this.speedX;
+							
+						if(!debugMode)
+						{
+							currentHealth--;	
+							
+							if(currentHealth == 0)
+							{	
+								gameState = 2;
+								this.dead = true;
+							}
+						}
+						hitSound.play();
+					}
+				}
+			}
+			
+			
+			//Enemy Collision
+			for(a = 0; a < enemies.enemyLimit; a++)
+			{
+				if(enemies.array[a] != null && !collision && !this.hitAir && !this.hit) //If you are viable to be hit by two things in one frame, cancel out now.
+				{					
+					//Inside of the Collsionbox
+					if(this.x + this.Xpad < enemies.array[a].x  + enemies.array[a].width 
+					&& this.x + this.width - this.Xpad > enemies.array[a].x 
+					&& this.y < enemies.array[a].y  + enemies.array[a].height 
+					&& this.y + this.height > enemies.array[a].y 
+					&& enemies.array[a].state != 5) //It isn't already exploded.
+					{
+						//console.log("HIT");
+					
+						collision = true;
+						
+						if(this.onGround == true)
+						{	
+							this.onGround = false;
+							this.y++;
+						}
+						
+						this.hitAir = true;
+						this.hitTrigger = true;
+						this.blinkON = true;
+						
+						if(car.UIstate > 1 && car.UIstate <= 4) //If you get hit by a zombie and you fixed a part, it shouldn't reset.
+						{
+							myGamePiece.allowInput = true;
+							car.UIstate = 0;
+						}
+						
+						if(this.x < enemies.array[a].x)
+						{
+							this.speedY = -6;
+							this.hitDirection = -1;
+							this.speedX = -this.movementSpeed; 
+						}	
+						else
+						{
+							this.speedY = -6;
+							this.hitDirection = 1;
+							this.speedX = this.movementSpeed; 
+						}
+						
+						if(this.movementSpeed+this.x > (myGameArea.canvas.width/2+5) || this.movementSpeed+this.x < 0)
+							this.speedX = -this.speedX;
+							
+						if(!debugMode)
+						{
+							currentHealth--;	
+							
+							if(currentHealth == 0)
+							{	
+								gameState = 2;
+								this.dead = true;
+							}
+						}
+						hitSound.play();
+					
+					}
+				}
+			}
+		}
+		
+		//ObjectCollision
+		if(!this.hitAir)
+		{
+			this.currentDownArrow = -1;
+
+			//Putting the payphone up here means that if a phone and a crate were on top of each other, the crate would win out. 
+			if(this.x < payphone.x  + payphone.width   //Payphone
+			&& this.x + this.width > payphone.x 
+			&& this.y < payphone.y  + payphone.height 
+			&& this.y + this.height > payphone.y)
+			{
+				this.currentDownArrow = -2;
+			}	
+
+			if(this.x < car.x  + car.width   //CAR
+			&& this.x + this.width > car.x 
+			&& this.y < car.y  + car.height 
+			&& this.y + this.height > car.y)
+			{
+				this.currentDownArrow = -3;
+			}
+			
+			for(a = 0; a < crate.crateLimit; a++)//CRATES
+			{
+				if(crate.array[a] != null && crate.array[a].state == 1)
+				{
+					if(this.x < crate.array[a].x-10  + crate.array[a].width 
+					&& this.x + this.width > crate.array[a].x-10 
+					&& this.y < crate.array[a].y-6  + crate.array[a].height 
+					&& this.y + this.height > crate.array[a].y-6)
+					{
+						this.currentDownArrow = a;
+					}
+				}
+			}
+		}
+		
+		
+		if(this.onGround == false)
+		{
+			if(this.speedY + this.gravity < this.maximumVelocity)
+				this.speedY += this.gravity;
+			else if(this.speedY + this.gravity >= this.maximumVelocity)
+				this.speedY = this.maximumVelocity;
+		}
+		
+		if(!(this.x + this.speedX < 0 || this.x + this.speedX > myGameArea.canvas.width/2-20))
+			this.x += this.speedX;
+
+		this.y += this.speedY;
+			
+		this.bottom();
+    }
+
+	this.bottom = function()
+	{
+        if(this.dead && (this.y + this.speedY+this.gravity > 100 && !this.hitTrigger))
+		{
+			if(this.bounce)
+			{
+				this.gameOver = true;
+				this.allowInput = false;
+				this.onGround = true;
+				this.speedY = 0;
+				this.y = 100;
+				this.speedX = 0;
+				if(this.landSoundTrigger)
+				{
+					gameState = 1;
+					this.landSoundTrigger = false;
+					landingSound.play();
+				}	
+			}
+			else //Bounce
+			{
+				this.speedY = -5;
+				this.hitTrigger = true;
+
+				if(this.speedX < 0)
+					this.speedX = -3;
+				else if(this.speedX > 0)
+					this.speedX = 3;
+
+				this.bounce = true;
+				landingSound.play();
+
+				this.y = 101;			
+			}
+		}
+		else if (this.y + this.speedY+this.gravity > 100 && !this.hitTrigger) 
+		{
+			this.onGround = true;
+			this.speedY = 0;
+         	this.y = 100;
+			
+			if(this.hitAir)
+			{
+				this.hit = true;
+				this.hitAir = false;
+			}
+        }
+		else
+			this.hitTrigger = false;
+	}
+	
+	this.reset = function(severity)
+	{    
+		myGamePiece.state = 0;
+		myGamePiece.onGround = true;
+		myGamePiece.speedX = 0;
+		myGamePiece.speedY = 0;
+		myGamePiece.x = 80;			//Window x and y
+		myGamePiece.y = 100; 
+		myGamePiece.right = true;
+		myGamePiece.spriteX = 1;	//The start is standing to the right.
+		myGamePiece.spriteY = 1;
+		myGamePiece.spriteSizeY = 23;
+		myGamePiece.spriteSizeX = 20;
+		myGamePiece.pressedShoot = false;
+		myGamePiece.hitAir = false;
+		myGamePiece.hitTrigger = false;
+		myGamePiece.hit = false;
+		myGamePiece.hitDirection = 0;
+		myGamePiece.landSoundTrigger = true;
+		myGamePiece.heldScore = 0;
+		myGamePiece.dead = false;
+		myGamePiece.gameOver = false;
+		myGamePiece.bounce = false;
+		
+		if(severity == 2)		//Resetting the whole game
+			this.coins = 0;
+	}
+}
+
+function move()
+{
+	if(myGamePiece.allowInput)
+	{
+		if(myGameArea.keys && (myGameArea.keys[37] || myGameArea.keys[39]))
+		{		
+			if (myGameArea.keys[37])	//Left
+			{
+				myGamePiece.right = false;
+			
+				if(myGamePiece.state == 0 || myGamePiece.state == 4 || myGamePiece.state == 5 || myGamePiece.state == 6)//out of standing or walking right
+					myGamePiece.state = 1;
+				
+				if(!myGamePiece.hitAir)
+					myGamePiece.speedX = myGamePiece.movementSpeed*-1;
+			}
+			else if (myGameArea.keys[39]) 	//Right
+			{	
+				myGamePiece.right = true;
+			
+				if(myGamePiece.state == 4 || myGamePiece.state == 0 || myGamePiece.state == 1 || myGamePiece.state == 2)//out of standing or walking left
+					myGamePiece.state = 5;
+			
+				if(!myGamePiece.hitAir)
+					myGamePiece.speedX = myGamePiece.movementSpeed; 
+			}
+		}
+		else
+			{clearmove();}
+
+		if (myGameArea.keys && myGameArea.keys[38])	//Up 
+		{	
+			if(myGamePiece.onGround == true)
+			{
+				if(!myGamePiece.hitAir)
+					jumpSound.play();
+				
+				myGamePiece.onGround = false;
+				myGamePiece.speedY = -12;
+			}
+		}
+		
+		if (myGameArea.keys && myGameArea.keys[32]  && myGamePiece.pressedShoot == false && currentHealth > 0)
+		{
+			myGamePiece.pressedShoot = true;
+				
+			if(currentBullets > 0)
+			{	
+				if(myGamePiece.right)
+					bullets.addBullet(1);
+				else
+					bullets.addBullet(-1);
+			}
+		}
+		
+		
+		if (myGameArea.keys && myGameArea.keys[40] && myGamePiece.pressedDown == false)	//Down
+		{	
+			myGamePiece.pressedDown = true;
+
+			/*
+				-1 - Nothing
+				>= 0 - Currently on top of said crate
+				-2 - PhoneBooth
+				-3 - Car
+			*/			
+			if(myGamePiece.currentDownArrow >= 0)
+			{
+				//console.log(myGamePiece.currentDownArrow+"- Crate has been opened.");
+			
+				crate.array[myGamePiece.currentDownArrow].state = 2;
+				crate.array[myGamePiece.currentDownArrow].boxSpriteX = 1;	//You have to reset the value here because it can sometimes carry over from the rotating sprite.
+				
+				if(crate.array[myGamePiece.currentDownArrow].itemContents == 0)
+					crate.array[myGamePiece.currentDownArrow].animationCounter = 4;//speed
+				else
+					crate.array[myGamePiece.currentDownArrow].animationCounter = 2;//speed
+				
+				crate.array[myGamePiece.currentDownArrow].animationFrame = 0;//frame				
+				
+				openSound.play();
+			}
+			else if(myGamePiece.currentDownArrow == -2)
+			{
+				if(myGamePiece.coins >= 10 && car.UIstate < 7)//Once the car is activated you can't call the phone again.
+					payphone.activatePhone();
+			}
+			else if(myGamePiece.currentDownArrow == -3 )
+			{
+				if(haveCarPart)
+				{	
+					car.UIstate = 2;
+					this.allowInput = false;
+					haveCarPart = false;			//Use up the part right.
+					
+					if(car.startedOnEngine)
+					{
+						if(car.partCurrentlyFixing != -1)
+							car.restartEngine(0);	//Start back on the same part.
+						else
+							car.restartEngine(1);	//Start back on a new part.
+					}
+					else
+						car.startedOnEngine = true;
+				}
+				else if(car.UIstate == 8)	//Fixed and ready for you to get in.
+				{
+					//The player is in the car now.
+					car.state = 2;	
+					car.UIstate = 9;
+					gameState = 4; //Render everything but the truck and player.
+				}
+			}
+		}
+	}
+}
+
+function clearmove() 
+{
+	var friction = myGamePiece.airFriction;
+
+	if(myGamePiece.onGround)
+		friction = myGamePiece.airFriction*3;
+
+	if(myGamePiece.speedX < 0)
+	{
+		if(myGamePiece.speedX + friction > 0)
+			myGamePiece.speedX = 0;
+		else
+			myGamePiece.speedX += friction;
+	}
+	else if(myGamePiece.speedX > 0)
+	{
+		if(myGamePiece.speedX - friction < 0)
+			myGamePiece.speedX = 0;
+		else
+			myGamePiece.speedX -= friction;
+	}
+}
+
+function regainHealth()
+{
+	currentHealth = totalHealthLimit;
+	healthSound.play();
+}
+
+function getACarPart()
+{
+	haveCarPart = true;
+	healthSound.play();
+	car.UIstate = 1;	//Blinking down arrow
+}
+
+//------BULLET----------------------------------------
+
+function bulletHandler()
+{
+	this.bulletLimit = totalBulletLimit;
+	this.array = new Array(this.bulletLimit);
+	this.currentBulletCount = 0;
+	this.bulletSpeed = 5;
+
+	this.addBullet = function(direction)
+	{
+		var newSpotAdded = false;
+		
+		if(this.currentBulletCount < 3)
+		{		
+			for(x = 0; x < this.bulletLimit; x++)
+			{
+				if(this.array[x] == null && !newSpotAdded)
+				{
+					if(myGamePiece.right)
+						this.array[x] = new bulletObject(myGamePiece.x+19, myGamePiece.y+8, x, "bullet.png", direction);
+					else
+						this.array[x] = new bulletObject(myGamePiece.x, myGamePiece.y+8, x, "bullet.png", direction);
+
+					shootSound.currentTime = 0;
+					shootSound.play();
+					
+					this.currentBulletCount++;//How many are on screen
+					
+					if(!debugMode)
+						currentBullets--;//How many you have
+					
+					newSpotAdded = true;
+				}
+			}
+			
+		}
+	}
+	
+	
+	this.removeBullet = function(id)
+	{
+		if(this.currentBulletCount > 0)
+		{
+			this.array[id] = null;
+			
+			this.currentBulletCount--;
+		}
+	}
+	
+	this.update = function()	
+	{
+		if(this.currentBulletCount > 0)
+		{
+			for(x = 0; x < this.bulletLimit; x++)
+			{
+				if(this.array[x] != null)
+				{
+					ctx.drawImage(
+					this.array[x].image, 
+					this.array[x].x, 
+					this.array[x].y,
+					1,1
+					);
+				
+					if((this.array[x].x + this.array[x].direction*this.bulletSpeed < -5 )|| (this.array[x].x + this.array[x].direction*this.bulletSpeed > myGameArea.canvas.width/2+5))
+						this.removeBullet(x);
+					
+					else
+					{
+						var removed = false; //Any collisions with the enemies?
+						var spewCoints = false;
+						
+					
+						for(a = 0; a < enemies.enemyLimit; a++)
+						{
+							if(enemies.array[a] != null && !removed)
+							{								
+								//Inside of the Collsionbox
+								if(this.array[x].x < enemies.array[a].x  + enemies.array[a].width 
+								&& this.array[x].x + this.array[x].width > enemies.array[a].x 
+								&& this.array[x].y < enemies.array[a].y  + enemies.array[a].height 
+								&& this.array[x].y + this.array[x].height > enemies.array[a].y 
+								&& enemies.array[a].state != 5)	//It hasn't already exploded.
+								{
+									removed = true;
+									this.removeBullet(x);
+									
+									//Make the chances for zero and 1 coin more likely 
+									if(myGamePiece.coins < 31 && car.UIstate < 7)	//You can't keep racking up coints once the car is fixed.
+									{
+										var randomNum = random(0,2);
+										
+										for(b = 0; b != randomNum; b++)
+										{
+											if(coint.addCoin(enemies.array[a].x, enemies.array[a].y))
+												spewCoints = true;
+										}
+									}
+									
+									
+									if(spewCoints)	//It's less visual noise if there are only coins that come out if you kill a zombie
+										enemies.removeEnemy(a);
+									else			//Otherwise spew out guts
+									{
+										enemies.array[a].initiateGib();
+										enemies.array[a].state = 5; //Exploded rather than just deleting them
+									}
+									
+									explosionSound.currentTime = 0;
+									explosionSound.play();
+									
+									score += 10;
+						
+									if(score % 100 == 0 && score != 0)
+									{	
+										hud.heldScore = score;
+										hud.reached100pts = true;
+										ptsSound.play();
+									}
+								}
+							}
+						}
+						
+						if(!removed)
+							this.array[x].x += this.array[x].direction*this.bulletSpeed;
+
+					}	
+				}
+			}		
+		}			
+	}
+	
+	this.justDraw = function()
+	{
+		if(this.currentBulletCount > 0)
+		{
+			for(x = 0; x < this.bulletLimit; x++)
+			{
+				if(this.array[x] != null)
+					ctx.drawImage(this.array[x].image, this.array[x].x, this.array[x].y, 1, 1);
+			}		
+		}			
+	}
+}
+
+function bulletObject (x, y, ID, bulletImage, direction) 
+{
+	this.x = x;
+	this.y = y;
+	this.width = 1;
+	this.height = 1;
+	this.id = ID; 
+	this.direction = direction;
+
+	this.image = new Image();	
+    this.image.src = bulletImage;
+}
+
+//-----ENEMY-----------------------------------------
+
+function enemyHandler()
+{
+	this.enemyLimit = 4;
+	this.array = new Array(this.enemyLimit);
+	this.currentEnemyCount = 0;
+	this.enemySpeed = 2;
+	
+	this.image = new Image();
+	this.image.src = "Enemy sprite sheet.png";
+	this.gibImage = new Image();
+	this.gibImage.src = "Gib.png";
+	
+	this.gibCounter = 0; //Its to spice up the gib animation frames
+	
+	this.timeReference = new Date();
+	this.elapsedTime = this.timeReference.getTime();
+    this.currentTime = this.timeReference.getTime();
+	this.animationSpeed = 6;
+	this.change = false;
+	
+	this.addEnemy = function()
+	{
+		var newSpotAdded = false;
+		
+		if(this.currentEnemyCount < this.enemyLimit)
+		{		
+			for(x = 0; x < this.enemyLimit; x++)
+			{
+				if(this.array[x] == null && !newSpotAdded)
+				{				
+					var randomNum = random(1,2);
+					
+					if(randomNum == 1)
+						this.array[x] = new enemyObject(-21, 101, x, 1);
+					else
+						this.array[x] = new enemyObject(myGameArea.canvas.width/2, 101, x, -1);
+
+					this.currentEnemyCount++;
+					newSpotAdded = true;
+				}
+			}
+		}
+	}
+	
+	this.removeEnemy = function(id)
+	{
+		if(this.currentEnemyCount > 0)
+		{
+			this.array[id] = null;
+
+			this.currentEnemyCount--;
+		}
+	}
+
+	this.reset = function()
+	{
+		this.array = new Array(this.enemyLimit);
+		this.currentEnemyCount = 0;
+	}
+	
+	this.update = function()	
+	{	
+		if(this.currentEnemyCount > 0)
+		{
+			this.timeReference = new Date();
+			this.currentTime = this.timeReference.getTime();
+			this.change = false;
+			
+			if(this.currentTime - this.elapsedTime > this.animationSpeed)
+			{
+				this.timeReference = new Date();
+				this.elapsedTime = this.timeReference.getTime();
+				this.change = true;
+			}
+				
+			this.slowRate = isGoodTime(60); //Only do it once.
+				
+			for(x = 0; x < this.enemyLimit; x++)
+			{
+				if(this.array[x] != null)
+				{					
+					if(car.UIstate != 4 || this.slowRate) //If you're fixing the car, then the zombies will slow down
+					{
+						if(this.array[x].state == 5)
+						{
+							if(this.change)
+							{
+								this.array[x].currentMovementCounter++;
+
+								for(d = 0; d < 4; d++) //animate each giblet
+								{this.array[x].gibArray[d].animationCounter = (this.array[x].gibArray[d].animationCounter+ 1) % 4;}
+							}
+						}
+						else
+						{
+							if(this.change)
+							{
+								this.array[x].currentMovementCounter++;
+								this.array[x].currentAnimationCounter++;
+							}
+						
+							switch(this.array[x].state)
+							{
+								case 0:
+									this.array[x].spriteX = 1;
+									break;
+								
+								case 1:
+									this.array[x].spriteX = 15;
+									break;
+									
+								case 2:
+									this.array[x].spriteX = 29;
+									break;
+									
+								case 3:
+									this.array[x].spriteX = 43;
+									break;
+							}
+						
+							if(this.array[x].currentAnimationCounter >= this.array[x].animationCounter)
+							{	
+								this.array[x].currentAnimationCounter = 0;
+							
+								switch(this.array[x].state)
+								{
+									case 0:
+										this.array[x].state = 1;
+										break;
+									
+									case 1:
+										this.array[x].state = 0;
+										break;
+										
+									case 2:
+										this.array[x].state = 3;
+										break;
+										
+									case 3:
+										this.array[x].state = 2;
+										break;
+								}					
+							} 
+						}
+					}
+					
+					if(this.array[x].state == 5)
+					{
+						for(d = 0; d < 4; d++) //draw each giblet
+						{	ctx.drawImage(this.gibImage, this.array[x].gibArray[d].animationCounter * 5, 0, 5, 5, this.array[x].gibArray[d].x, this.array[x].gibArray[d].y, 5,5); }
+					}
+					else
+						ctx.drawImage(this.image, this.array[x].spriteX, 1, 13, 22, this.array[x].x, this.array[x].y, 13, 22);
+					
+					
+					if(car.UIstate != 4 || this.slowRate) //If you're fixing the car, then the zombies will slow down
+					{
+						if(this.array[x].currentMovementCounter >= this.array[x].movementCounter)
+						{	
+							if(this.array[x].state == 5) //Its currently exploded.
+							{	
+								for(d = 0; d < 4; d++)
+								{	
+									if(this.array[x].gibArray[d].speedY + myGamePiece.gravity < myGamePiece.maximumVelocity)
+										this.array[x].gibArray[d].speedY += myGamePiece.gravity;
+									else if(this.array[x].gibArray[d].speedY + myGamePiece.gravity >= myGamePiece.maximumVelocity)
+										this.array[x].gibArray[d].speedY = myGamePiece.maximumVelocity;
+								
+									this.array[x].gibArray[d].x += this.array[x].gibArray[d].speedX;
+									
+									this.array[x].gibArray[d].y += this.array[x].gibArray[d].speedY;
+								}
+								
+								if(this.array[x].gibArray[2].y >= 135) //Meaning all the Gib is off the screen
+									this.removeEnemy(x);
+							}
+							else
+							{
+								this.array[x].currentMovementCounter = 0;
+							
+								if((this.array[x].x + this.array[x].direction*this.enemySpeed < -21 )|| (this.array[x].x + this.array[x].direction*this.enemySpeed > myGameArea.canvas.width/2+5)) //Boundary Checking
+									this.removeEnemy(x);
+								else	
+									this.array[x].x += this.array[x].direction*this.enemySpeed;
+							}
+						}
+					}
+				}
+			}
+									
+		}
+
+		if(car.UIstate != 4 || this.slowRate) //If you're fixing the car, the zombie spawn rate should slow down as well
+		{
+			var randomNumber = random(1, 200);
+			
+			if(randomNumber == 14 || randomNumber == 41)
+				this.addEnemy();
+		}
+	}
+	
+	this.justDraw = function()	
+	{	
+		if(this.currentEnemyCount > 0)
+		{
+			for(x = 0; x < this.enemyLimit; x++)
+			{
+				if(this.array[x] != null)
+				{					
+					if(this.array[x].state == 5)
+					{
+						for(d = 0; d < 4; d++) //draw each giblet
+						{	ctx.drawImage(this.gibImage, this.array[x].gibArray[d].animationCounter * 5, 0, 5, 5, this.array[x].gibArray[d].x, this.array[x].gibArray[d].y, 5,5); }
+					}
+					else
+						ctx.drawImage(this.image, this.array[x].spriteX, 1, 13, 22, this.array[x].x, this.array[x].y, 13, 22);
+				}
+			}
+									
+		}
+	}
+}
+
+function enemyObject (x, y, ID, direction) 
+{
+	this.x = x;
+	this.y = y;
+	this.width = 13;	//used for collisions
+	this.height = 22;
+	this.spriteX = 1;
+
+	this.id = ID; 
+	this.direction = direction;
+	
+	this.movementCounter = random(2, 5);
+	this.currentMovementCounter = 0;
+	
+	this.animationCounter = random(6, 8);
+	this.currentAnimationCounter = 0;
+	
+	//Start state
+	if(this.direction < 0)
+		this.state = 0;
+	else
+		this.state = 2;
+		
+	this.gibArray = new Array(4);
+	
+	this.initiateGib = function() //Initiating the Gib here insures that when it is spawned, it has the correct coordinates with the enemy's previous location.
+	{
+		this.gibArray[0] = new gibPart(this.x, this.y, enemies.gibCounter, -1, 1);
+		enemies.gibCounter = (enemies.gibCounter + 1) % 4;
+
+		this.gibArray[1] = new gibPart(this.x, this.y, enemies.gibCounter, -1, -1);
+		enemies.gibCounter = (enemies.gibCounter + 1) % 4;
+
+		this.gibArray[2] = new gibPart(this.x, this.y, enemies.gibCounter, -3, 1);
+		enemies.gibCounter = (enemies.gibCounter + 1) % 4;
+			
+		this.gibArray[3] = new gibPart(this.x, this.y, enemies.gibCounter, -3, -1);
+			
+		enemies.gibCounter = random(0, 3);	//To spice it up.
+	}
+}
+
+function gibPart (x, y, randomCounter, ySpeed, xSpeed)
+{
+	this.x = x;
+	this.y = y;
+	this.animationCounter = randomCounter;
+	this.speedX = xSpeed; //Other wise known as direction
+	this.speedY = ySpeed; //Less initial y speed means it will drop sooner.
+}
+
+
+//-----CLOUDS-----------------------------------------
+
+function cloudsHandler()
+{
+	this.cloudLimit = 2;
+	this.array = new Array(this.cloudLimit);
+	this.currentCloudCount = 0;
+	
+	this.image = new Image();
+	this.image.src = "smoke cloud sprite sheet.png";
+	this.spriteX = 1;	
+	
+	this.timeReference = new Date();
+	this.elapsedTime = this.timeReference.getTime();
+    this.currentTime = this.timeReference.getTime();
+	this.animationSpeed = 50;
+	
+	this.addCloud = function()
+	{
+		var newSpotAdded = false;
+		
+		if(this.currentCloudCount < this.cloudLimit)
+		{		
+			for(x = 0; x < this.cloudLimit; x++)
+			{
+				if(this.array[x] == null && !newSpotAdded)
+				{				
+					var randomNum = random(1,2);
+					
+					var direction = 1;
+					
+					if(randomNum == 1)
+						direction = -1;
+					
+					this.array[x] = new cloudObject(133, 102, x, direction);
+					
+					this.currentCloudCount++;
+					newSpotAdded = true;
+				}
+			}
+			
+		}
+	}
+	
+	this.removeCloud = function(id)
+	{
+		if(this.currentCloudCount > 0)
+		{
+			this.array[id] = null;
+
+			this.currentCloudCount--;
+		}
+	}
+	
+	this.reset = function()
+	{
+		this.array = new Array(this.cloudLimit);
+		this.currentCloudCount = 0;
+	}
+
+	this.update = function()	
+	{
+		if(this.currentCloudCount > 0)
+		{
+			this.timeReference = new Date();
+			this.currentTime = this.timeReference.getTime();
+			this.change = false;
+			
+			if(this.currentTime - this.elapsedTime > this.animationSpeed)
+			{
+				this.timeReference = new Date();
+				this.elapsedTime = this.timeReference.getTime();
+				this.change = true;
+			}				
+				
+			for(x = 0; x < this.cloudLimit; x++)
+			{
+				if(this.array[x] != null)
+				{	
+					if(this.change)
+						this.array[x].currentAnimationCounter++;
+										
+					switch(this.array[x].state)
+					{
+						case 0:
+							this.spriteX = 1;
+							this.spriteSizeX = 11;
+							this.spriteSizeY = 10;	
+							break;
+						
+						case 1:
+							this.spriteX = 13;
+							this.spriteSizeX = 12;
+							this.spriteSizeY = 11;
+							break;
+							
+						case 2:
+							this.spriteX = 26;
+							this.spriteSizeX = 20;
+							this.spriteSizeY = 16;
+							break;
+							
+						case 3:
+							this.spriteX = 47;
+							this.spriteSizeX = 20;
+							this.spriteSizeY = 19;
+							break;
+							
+						case 4:
+							this.spriteX = 68;
+							this.spriteSizeX = 34;
+							this.spriteSizeY = 33;
+							break;
+							
+						case 5:
+							this.spriteX = 103;
+							this.spriteSizeX = 35;
+							this.spriteSizeY = 34;
+							break;									
+					}
+				
+					if(this.array[x].currentAnimationCounter >= this.array[x].animationCounter)
+					{	
+						this.array[x].currentAnimationCounter = 0;
+					
+						switch(this.array[x].state)
+						{
+							case 0:
+								if(this.array[x].y/this.array[x].yOriginal < .66)
+									this.array[x].state = 2;
+								else
+									this.array[x].state = 1;
+								break;
+							
+							case 1:
+								if(this.array[x].y/this.array[x].yOriginal < .66)
+									this.array[x].state = 3;
+								else
+									this.array[x].state = 0;
+								break;
+								
+							case 2:
+								if(this.array[x].y/this.array[x].yOriginal < .33)
+									this.array[x].state = 4;
+								else
+									this.array[x].state = 3;
+								break;
+								
+							case 3:
+								if(this.array[x].y/this.array[x].yOriginal < .33)
+									this.array[x].state = 5;
+								else
+									this.array[x].state = 2;
+								break;
+								
+							case 4:
+								this.array[x].state = 5;
+								break;
+								
+							case 5:
+								this.array[x].state = 4;
+								break;	
+								
+						}					
+					} 
+							
+					ctx.drawImage(this.image, this.spriteX, 36, this.spriteSizeX, this.spriteSizeY, this.array[x].x-(this.spriteSizeX/2), this.array[x].y-(this.spriteSizeY/2), this.spriteSizeX, this.spriteSizeY);
+					
+					
+					//CHANGE THE CLOUD MOVE SPEED
+					if(this.array[x].y + this.array[x].speedY < -34)
+						this.removeCloud(x);
+					else		
+					{
+						if(this.array[x].direction == 1)
+						{
+							if(this.array[x].x > this.array[x].xOriginal)
+								this.array[x].speedX -= this.array[x].xGrowthFactor;
+							else
+								this.array[x].speedX += this.array[x].xGrowthFactor;
+								
+							if(this.array[x].speedX <= 0)
+							{
+								this.array[x].direction = -1;
+								this.array[x].xGrowthFactor -= .001;
+							}
+						}
+						else //this.array[x].direction == -1
+						{
+							if(this.array[x].x < this.array[x].xOriginal)
+								this.array[x].speedX += this.array[x].xGrowthFactor;
+							else
+								this.array[x].speedX -= this.array[x].xGrowthFactor;
+								
+							if(this.array[x].speedX >= 0)
+							{
+								this.array[x].direction = 1;
+								this.array[x].xGrowthFactor -= .001;
+							}
+							
+						}
+					
+						this.array[x].y = this.array[x].y + this.array[x].speedY; //Always be ascending
+						this.array[x].x = this.array[x].x + this.array[x].speedX; 					
+					}
+						
+						
+				}
+			}
+									
+		}
+
+		var randomNumber = random(1, 200);
+		
+		if(randomNumber == 14 || randomNumber == 114 || randomNumber == 141 || randomNumber == 41)
+			this.addCloud();
+	}
+}
+
+function cloudObject (x, y, ID, direction)
+{
+	this.x = x;
+	this.y = y;
+
+	this.id = ID; 
+	this.direction = direction;
+	this.speedX = 1.5*direction;
+	this.speedY = -.5;
+	
+	this.xOriginal = x;
+	this.xLimit = this.xOriginal + this.direction;
+	this.yOriginal = y;
+	this.xGrowthFactor = .07;
+
+	
+	this.animationCounter = random(2, 4);
+	this.currentAnimationCounter = 0;
+	
+	//Start state
+	if(this.direction < 0)
+		this.state = 0;
+	else
+		this.state = 1;
+}
+
+//-----COINS-----------------------------------------
+
+function coinHandler()
+{
+	this.coinLimit = 14;
+	this.array = new Array(this.coinLimit);
+	this.currentCoinCount = 0;
+	
+	this.image = new Image();	
+    this.image.src = "Coin.png";
+	
+	this.timeReference = new Date();
+	this.elapsedTime = this.timeReference.getTime();
+    this.currentTime = this.timeReference.getTime();
+	this.animationSpeed = 50;
+
+	this.addCoin = function(sourceX, sourceY)
+	{
+		var newSpotAdded = false;
+		
+		if(this.currentCoinCount < this.coinLimit)
+		{		
+			for(x = 0; x < this.coinLimit; x++)
+			{
+				if(this.array[x] == null && !newSpotAdded)
+				{
+					var randomNum = random(1,2);
+					
+					var direction = 1;
+					
+					if(randomNum == 1)
+						direction = -1;
+				
+					this.array[x] = new coinObject(sourceX, sourceY, x, direction);
+											
+					this.currentCoinCount++;//How many are on screen
+					
+					newSpotAdded = true;
+				}
+			}
+		}
+		
+		return newSpotAdded;
+	}
+	
+	this.removeCoin = function(id)
+	{
+		if(this.currentCoinCount > 0)
+		{
+			this.array[id] = null;
+			
+			this.currentCoinCount--;
+		}
+	}
+	
+	this.reset = function()
+	{
+		this.array = new Array(this.coinLimit);
+		this.currentCoinCount = 0;
+	}
+	
+	this.update = function()	
+	{
+		if(this.currentCoinCount > 0)
+		{
+			this.timeReference = new Date();
+			this.currentTime = this.timeReference.getTime();
+			this.change = false;
+			
+			if(this.currentTime - this.elapsedTime > this.animationSpeed)
+			{
+				this.timeReference = new Date();
+				this.elapsedTime = this.timeReference.getTime();
+				this.change = true;
+			}				
+				
+			for(x = 0; x < this.coinLimit; x++)
+			{
+				if(this.array[x] != null)
+				{	
+					if(this.change)
+						this.array[x].currentAnimationCounter++;
+				
+					if(this.array[x].currentAnimationCounter >= this.array[x].animationCounter)
+					{	
+						this.array[x].currentAnimationCounter = 0;
+						this.array[x].animationFrame = (this.array[x].animationFrame + 1) % 4;
+					}
+						
+					if(!this.array[x].blinkON)
+						ctx.drawImage(this.image, this.array[x].animationFrame*5, 0, 5, 5, this.array[x].x, this.array[x].y, 5, 5);
+				
+					if((this.array[x].x + this.array[x].direction*this.speedX < 0)|| (this.array[x].x + this.array[x].direction*this.speedX > (myGameArea.canvas.width/2)+2))
+						this.removeCoin(x);
+					else
+					{				
+						//Inside of the Collsionbox
+						if(this.array[x].x < myGamePiece.x  + myGamePiece.width 
+						&& this.array[x].x + this.array[x].width > myGamePiece.x 
+						&& this.array[x].y < myGamePiece.y  + myGamePiece.height 
+						&& this.array[x].y + this.array[x].height > myGamePiece.y )
+						{
+							myGamePiece.coins++;
+							this.removeCoin(x);
+							
+							cointSound.currentTime = 0;
+							cointSound.play();
+						}
+						else //Coin Movement
+						{
+							if(this.array[x].onGround == false)//It's not going to move after it lands
+							{
+								if(this.array[x].speedY + myGamePiece.gravity < myGamePiece.maximumVelocity)
+									this.array[x].speedY += myGamePiece.gravity;
+								else if(this.array[x].speedY + myGamePiece.gravity >= myGamePiece.maximumVelocity)
+									this.array[x].speedY = myGamePiece.maximumVelocity;
+							
+							
+								if(!(this.array[x].x + this.array[x].speedX < 0 || this.array[x].x + this.array[x].speedX > myGameArea.canvas.width/2 - 4))
+									this.array[x].x += this.array[x].speedX;
+								
+								this.array[x].y += this.array[x].speedY;
+
+								if (this.array[x].y + this.array[x].speedY + myGamePiece.gravity > 118)//this.bottom()
+								{
+									if(this.array[x].bounce)
+									{
+										this.array[x].onGround = true;									
+										this.array[x].y = 118;
+										//Not nessecary but put there anyways
+										this.array[x].speedY = 0;
+										this.array[x].speedX = 0;										
+									}
+									else //Bounce
+									{
+										this.array[x].y = 118;
+
+										this.array[x].speedY = -2;
+
+										this.array[x].speedX = 2*this.array[x].speedX/3;
+
+										this.array[x].bounce = true;
+									}
+									
+									cointBounceSound.play();
+								}
+							}
+							else //On Ground
+							{
+								this.timeReference = new Date();
+								this.currentTime = this.timeReference.getTime();
+								
+								if(!this.array[x].blinking)	//Waiting until blinking
+								{	
+									if(this.currentTime - this.array[x].blinkElapsedTime > this.array[x].waitUntilBlinkTime)
+									{
+										this.timeReference = new Date();
+										this.array[x].blinkElapsedTime = this.timeReference.getTime();
+										this.array[x].blinking = true;
+									}
+								}
+								else	//blinking
+								{
+									if(this.currentTime - this.array[x].blinkElapsedTime > this.array[x].blinkingTime)
+									{
+										this.timeReference = new Date();
+										this.array[x].blinkElapsedTime = this.timeReference.getTime();
+										this.array[x].blinkON = !this.array[x].blinkON;
+										
+										if(this.array[x].blinkON)
+											this.array[x].blinkCounter++; 
+									
+										if(this.array[x].blinkCounter > this.array[x].blinkLimit)
+											this.removeCoin(x);
+									}
+								}
+							}
+						}
+					}
+				}
+			}		
+		}	
+	}
+	
+	this.justDraw = function()	
+	{
+		if(this.currentCoinCount > 0)
+		{
+			for(x = 0; x < this.coinLimit; x++)
+			{
+				if(this.array[x] != null)	
+					ctx.drawImage(this.image, this.array[x].animationFrame*5, 0, 5, 5, this.array[x].x, this.array[x].y, 5, 5);
+			}		
+		}	
+	}
+}
+
+function coinObject (x, y, ID, direction) 
+{
+	this.x = x;
+	this.y = y;
+	this.width = 5;
+	this.height = 5;
+	this.id = ID; 
+	this.direction = direction;
+	this.speedX = direction*random(1,2);
+	this.speedY = -2;
+	this.onGround = false;
+	this.bounce = false;
+	this.blinking = false;
+	this.currentAnimationCounter = 0;
+	this.animationCounter = 2;
+	this.animationFrame = random(0,3);
+	
+	coint.timeReference = new Date();
+	this.blinkElapsedTime = coint.timeReference.getTime();
+    
+	this.waitUntilBlinkTime = 5000;
+	this.blinkingTime = 20;
+	
+	this.blinkON = false;
+	this.blinkLimit = 20;	//How many times you want the coin to blink.
+	this.blinkCounter = 0;
+	
+}
+
+//------CRATE-----------------------------------------
+function crateHandler()
+{
+	this.crateLimit = 4; //Normal crates + SpecialCrates
+	this.normalLimit = 2; 
+	this.array = new Array(this.crateLimit);
+	this.currentCrateCount = 0;
+	this.currentSpecialCrateCount = 0;
+	//The first two slots belong to normal crates. The last two slots belong to special crates.
+	
+	this.image = new Image();
+	this.image.src = "Crate.png";
+	this.spriteX = 1;	
+	this.spriteY = 1;
+
+	this.timeReference = new Date();
+	this.elapsedTime = this.timeReference.getTime();
+    this.currentTime = this.timeReference.getTime();
+	this.downArrowElapsedTime = this.timeReference.getTime();
+    this.downArrowCurrentTime = this.timeReference.getTime();
+	this.animationSpeed = 5;
+	this.firstCrate = -1;
+	/*
+		-1 Never Occured
+		<0 This ID is the first deployed crate
+		-2 The first crate has been opened
+	*/
+	this.downArrowFrame = 0;
+	
+	
+	this.addCrate = function()
+	{
+		var newSpotAdded = false;
+		
+		if(this.currentCrateCount < this.normalLimit)
+		{		
+			for(x = 0; x < this.normalLimit; x++)
+			{
+				if(this.array[x] == null && !newSpotAdded)
+				{				
+					var randomNum = random(1,2);
+					
+					var direction = 1;
+					
+					if(randomNum == 1)
+						direction = -1;
+										
+					var randomX = random(29, 270);//This can be adjusted as need be
+					
+					this.array[x] = new crateObject(randomX, -7, x, direction);
+					
+					this.array[x].itemContents = 2;//Denotes that this isn't a car part	
+					
+					if(this.firstCrate == -1) //Is this the first crate
+						this.firstCrate = x;
+					
+					this.currentCrateCount++;
+					newSpotAdded = true;
+				}
+			}
+			
+		}
+	}
+	
+	this.addSpecialCrate = function(item)
+	{
+		var randomNum = random(1,2);
+					
+		var direction = 1;
+		var number;
+		
+		if(randomNum == 1)
+			direction = -1;
+							
+		var randomX = random(29, 270);//This can be adjusted as need be
+		
+		if(this.array[2] == null)
+			number = 2;
+		else
+			number = 3;
+		
+		this.array[number] = new crateObject(randomX, -7, number, direction);
+	
+		if(item == 0)	//If we are spawning a special car part
+		{
+			this.array[number].itemContents = 0;
+			this.array[number].animationFrame = random(0, 7); //Since it could spawn with 8 - 11 if this wasn't here.
+		}
+		else if(item == 1)
+		{	
+			this.array[number].itemContents = 1;
+			payphone.spawnHealthCrate = false;
+		}
+		
+		this.currentSpecialCrateCount++;
+	}
+	
+	this.removeCrate = function(id)
+	{
+		if(this.currentCrateCount > 0 || this.currentSpecialCrateCount > 0)
+		{
+			if(this.array[id].itemContents == 0)//The crate is no longer on screen
+				payphone.crateInbound = false;
+		
+			this.array[id] = null;
+
+			if(id > 1)
+				this.currentSpecialCrateCount--;
+			else
+				this.currentCrateCount--;
+		}
+	}
+	
+	this.reset = function()
+	{
+		this.array = new Array(this.crateLimit);
+		this.currentSpecialCrateCount = 0;
+		this.currentCrateCount = 0;
+	}
+
+	this.update = function()	
+	{
+		if(this.currentCrateCount > 0 || this.currentSpecialCrateCount > 0)
+		{
+			this.timeReference = new Date();
+			this.currentTime = this.timeReference.getTime();
+			this.change = false;
+			
+			if(this.currentTime - this.elapsedTime > this.animationSpeed)
+			{
+				this.timeReference = new Date();
+				this.elapsedTime = this.timeReference.getTime();
+				this.change = true;
+			}				
+				
+			for(x = 0; x < this.crateLimit; x++)
+			{
+				if(this.array[x] != null)
+				{	
+					switch(this.array[x].state)
+					{
+					
+						case 0://In air
+						{
+							if(this.change)
+								this.array[x].currentAnimationCounter++;	
+						
+							if(this.array[x].currentAnimationCounter >= this.array[x].animationCounter)
+							{	
+								this.array[x].currentAnimationCounter = 0;
+							
+								if(this.array[x].itemContents == 0)	//Special Crate
+								{
+									this.array[x].boxSpriteX = 24*this.array[x].animationFrame	+1;
+									this.array[x].animationFrame = (this.array[x].animationFrame + 1) % 8;
+								}
+								else
+								{
+									this.array[x].boxSpriteX = 25*this.array[x].animationFrame	+1;
+									this.array[x].animationFrame = (this.array[x].animationFrame + 1) % 12;									
+								}
+									
+								this.array[x].parachuteSpriteX = 34*this.array[x].parachuteFrame	+1;	
+								this.array[x].parachuteFrame = (this.array[x].parachuteFrame + 1) % 8;
+							} 
+																	
+							if(this.array[x].itemContents == 0)	//Special Crate
+								ctx.drawImage(this.image, this.array[x].boxSpriteX, 80, 23, 20, this.array[x].x-13, this.array[x].y-10, 23, 20); //Special Box
+							else
+								ctx.drawImage(this.image, this.array[x].boxSpriteX, 1, 24, 12, this.array[x].x-12, this.array[x].y-6, 24, 12); //Box
+							
+							if(this.array[x].itemContents == 0)
+								ctx.drawImage(this.image, this.array[x].parachuteSpriteX, 52, 33, 27, this.array[x].x-18, this.array[x].y-36, 33, 27); //Parachute
+							else
+								ctx.drawImage(this.image, this.array[x].parachuteSpriteX, 52, 33, 27, this.array[x].x-17, this.array[x].y-32, 33, 27); //Parachute
+								
+							//Collide with the ground
+							if((this.array[x].y + this.array[x].speedY > 118 && this.array[x].itemContents != 0) || (this.array[x].y + this.array[x].speedY > 114 && this.array[x].itemContents != 1)) 
+							{
+								if(this.array[x].itemContents != 0)
+									this.array[x].y = 118;
+								else
+									this.array[x].y = 114;
+								
+								this.array[x].speedY = 0;//Shouldn't matter, but just in case
+								this.array[x].speedX = 0;
+								this.array[x].state = 1;//TO ON GROUND
+								
+								if(this.array[x].animationFrame < 4)
+									this.array[x].direction = -1;
+								else
+									this.array[x].direction = 1;
+							
+								if(!myGamePiece.gameOver)
+									landingSound.play();
+							}
+							else //Still in the air		
+							{
+								if(this.array[x].direction == 1)
+								{
+									
+									if(this.array[x].x > this.array[x].xOriginal)
+										this.array[x].speedX -= this.array[x].xGrowthFactor;
+									else
+										this.array[x].speedX += this.array[x].xGrowthFactor;
+										
+									if(this.array[x].speedX <= 0)
+									{
+										this.array[x].direction = -1;
+										this.array[x].xGrowthFactor -= .001;
+									}
+								}
+								else //this.array[x].direction == -1
+								{									
+									if(this.array[x].x < this.array[x].xOriginal)
+										this.array[x].speedX += this.array[x].xGrowthFactor;
+									else
+										this.array[x].speedX -= this.array[x].xGrowthFactor;
+										
+									if(this.array[x].speedX >= 0)
+									{
+										this.array[x].direction = 1;
+										this.array[x].xGrowthFactor -= .001;
+									}
+								}
+								this.array[x].y = this.array[x].y + this.array[x].speedY; //Always be descending
+								this.array[x].x = this.array[x].x + this.array[x].speedX; 					
+							}
+						}
+						break;
+						
+						case 1: //On ground
+						{			
+							if(this.firstCrate >= 0 && this.firstCrate == x)
+							{
+								this.timeReference = new Date();
+								this.downArrowCurrentTime = this.timeReference.getTime();
+			
+								if(this.downArrowCurrentTime - this.downArrowElapsedTime > 200) //This is the only place this is needed
+								{
+									this.timeReference = new Date();
+									this.downArrowElapsedTime = this.timeReference.getTime();
+									
+									if(this.downArrowFrame == 0)
+										this.downArrowFrame = 1;
+									else
+										this.downArrowFrame = 0;
+								}
+								
+								ctx.drawImage(hud.downArrow, 22*this.downArrowFrame, 0, 22, 18, this.array[x].x-12, this.array[x].y-37, 22, 18);
+							}
+						
+							if(this.array[x].itemContents == 0)	//Special Crate
+								ctx.drawImage(this.image, 169, 80, 23, 20, this.array[x].x-13, this.array[x].y-10, 23, 20);
+							else if(this.array[x].direction == 1)
+								ctx.drawImage(this.image, 1, 1, 24, 12, this.array[x].x-12, this.array[x].y-6, 24, 12);
+							else
+								ctx.drawImage(this.image, 251, 1, 24, 12, this.array[x].x-12, this.array[x].y-6, 24, 12);
+						}
+						break;
+						
+						case 2:	//Opened
+						{
+							if(this.change)
+								this.array[x].currentAnimationCounter++;		
+							
+							if(this.array[x].currentAnimationCounter >= this.array[x].animationCounter)
+							{	
+								this.array[x].currentAnimationCounter = 0;
+														
+								if(this.array[x].itemContents != 0)
+									this.array[x].boxSpriteX = 31*this.array[x].animationFrame	+1;	
+								else
+									this.array[x].boxSpriteX = 24*this.array[x].animationFrame	+1;	
+								
+								
+								if(this.array[x].animationFrame < 8)
+									this.array[x].animationFrame++;
+								else 
+								{
+									this.array[x].state = 3;
+									
+									this.array[x].animationCounter = 2;//speed
+									
+									if(this.array[x].itemContents != 0 && this.array[x].itemContents != 1) //If its not a special crate and not already marked as a health crate
+										this.array[x].itemContents = random(1,10);//This way there is a chance of a health crate, but not common
+									
+									this.firstCrate = -2;
+									
+									if(this.array[x].itemContents == 0)//CarPart
+										getACarPart();
+									else if(this.array[x].itemContents == 1)
+										regainHealth();
+									else if(this.array[x].itemContents >  1)
+									{	
+										hud.reloading = true;
+										hud.currentReloadNumber = currentBullets;
+									}
+								}
+							} 
+							
+							
+							if(this.array[x].itemContents == 0)	//Special Crate
+								ctx.drawImage(this.image, this.array[x].boxSpriteX, 101, 23, 20, this.array[x].x-13, this.array[x].y-10, 23, 20);
+							else if(this.array[x].direction == 1)
+								ctx.drawImage(this.image, this.array[x].boxSpriteX, 14, 30, 18, this.array[x].x-12, this.array[x].y-12, 30, 18); //Left
+							else
+								ctx.drawImage(this.image, this.array[x].boxSpriteX, 33, 30, 18, this.array[x].x-18, this.array[x].y-12, 30, 18); //Right
+						}
+						break;
+						
+						case 3://Item raise
+						{							
+							if(this.change)
+								this.array[x].currentAnimationCounter++;		
+								
+							if(this.array[x].itemContents == 0)	//Special Crate
+								ctx.drawImage(this.image, 145, 101, 23, 20, this.array[x].x-13, this.array[x].y-10, 23, 20);	
+							else if(this.array[x].direction == 1)
+								ctx.drawImage(this.image, 156, 14, 30, 18, this.array[x].x-12, this.array[x].y-12, 30, 18);
+							else
+								ctx.drawImage(this.image, 156, 33, 30, 18, this.array[x].x-18, this.array[x].y-12, 30, 18);
+							
+							if(this.array[x].itemContents == 0)
+								ctx.drawImage(hud.wrench, this.array[x].x-8, this.array[x].y-3-this.array[x].total, 14, 6);
+							else if(this.array[x].itemContents == 1)
+								ctx.drawImage(hud.heart, this.array[x].x-3, this.array[x].y-3-this.array[x].total, 7, 7);
+							else if(this.array[x].itemContents > 1)
+								ctx.drawImage(hud.bullets, this.array[x].x-7, this.array[x].y-3-this.array[x].total, 14, 6);
+							
+							if(this.array[x].currentAnimationCounter >= this.array[x].animationCounter)
+							{	
+								this.array[x].currentAnimationCounter = 0;
+								
+								this.array[x].movement = +(this.array[x].movement+.3).toFixed(12);
+							
+								if((this.array[x].movement > 3.2 && this.array[x].itemContents != 0) || (this.array[x].movement > 3.7 && this.array[x].itemContents == 0))
+								{
+									this.array[x].state = 4;
+									this.array[x].currentAnimationCounter = 0;
+									this.array[x].animationCounter = 6;
+									this.array[x].frame = 0;
+								}
+								
+								this.array[x].total = +(this.array[x].movement+this.array[x].total).toFixed(12);
+							}
+							
+						}
+						break;
+						
+						case 4://Wait until Dissappear
+						{
+							if(this.change)
+								this.array[x].currentAnimationCounter++;
+													
+							if(this.array[x].itemContents == 0)	//Special Crate
+								ctx.drawImage(this.image, 145, 101, 23, 20, this.array[x].x-13, this.array[x].y-10, 23, 20);
+							else if(this.array[x].direction == 1)
+								ctx.drawImage(this.image, 156, 14, 30, 18, this.array[x].x-12, this.array[x].y-12, 30, 18);
+							else
+								ctx.drawImage(this.image, 156, 33, 30, 18, this.array[x].x-18, this.array[x].y-12, 30, 18);
+							
+							if(this.array[x].itemContents == 1)
+								ctx.drawImage(hud.heart, this.array[x].x-3, this.array[x].y-3-this.array[x].total, 7, 7);
+							else if(this.array[x].itemContents == 2)
+								ctx.drawImage(hud.bullets, this.array[x].x-7, this.array[x].y-3-this.array[x].total, 14, 6);
+						
+							if(this.array[x].currentAnimationCounter >= this.array[x].animationCounter)
+							{
+								this.array[x].frame++;
+										
+								if(this.array[x].frame >= 8)
+									this.removeCrate(x);
+							}
+						}
+						break;
+						
+					}	
+				}
+			}
+									
+		}
+		
+		//REMOVE LATER
+		var randomNumber = random(1, 2000);
+		if((randomNumber == 14 || randomNumber == 114 || randomNumber == 141 || randomNumber == 41) && car.UIstate < 7)
+			this.addCrate();
+	}
+	
+	this.justDraw = function() //To simulate the game coming to a complete stop.
+	{
+		for(x = 0; x < this.crateLimit; x++)
+		{
+			if(this.array[x] != null)
+			{	
+				switch(this.array[x].state)
+				{
+				
+					case 0://In air
+					{
+						if(this.array[x].itemContents == 0)	//Special Crate
+							ctx.drawImage(this.image, this.array[x].boxSpriteX, 80, 23, 20, this.array[x].x-13, this.array[x].y-10, 23, 20); //Special Box
+						else
+							ctx.drawImage(this.image, this.array[x].boxSpriteX, 1, 24, 12, this.array[x].x-12, this.array[x].y-6, 24, 12); //Box
+						
+						if(this.array[x].itemContents == 0)
+							ctx.drawImage(this.image, this.array[x].parachuteSpriteX, 52, 33, 27, this.array[x].x-18, this.array[x].y-36, 33, 27); //Parachute
+						else
+							ctx.drawImage(this.image, this.array[x].parachuteSpriteX, 52, 33, 27, this.array[x].x-17, this.array[x].y-32, 33, 27); //Parachute
+					}
+					break;
+					
+					case 1: //On ground
+					{			
+						if(this.firstCrate >= 0 && this.firstCrate == x)
+							ctx.drawImage(hud.downArrow, 22*this.downArrowFrame, 0, 22, 18, this.array[x].x-12, this.array[x].y-37, 22, 18);
+						
+						if(this.array[x].itemContents == 0)	//Special Crate
+							ctx.drawImage(this.image, 169, 80, 23, 20, this.array[x].x-13, this.array[x].y-10, 23, 20);
+						else if(this.array[x].direction == 1)
+							ctx.drawImage(this.image, 1, 1, 24, 12, this.array[x].x-12, this.array[x].y-6, 24, 12);
+						else
+							ctx.drawImage(this.image, 251, 1, 24, 12, this.array[x].x-12, this.array[x].y-6, 24, 12);
+					}
+					break;
+					
+					case 2:	//Opened
+					{
+						if(this.array[x].itemContents == 0)	//Special Crate
+							ctx.drawImage(this.image, this.array[x].boxSpriteX, 101, 23, 20, this.array[x].x-13, this.array[x].y-10, 23, 20);
+						else if(this.array[x].direction == 1)
+							ctx.drawImage(this.image, this.array[x].boxSpriteX, 14, 30, 18, this.array[x].x-12, this.array[x].y-12, 30, 18); //Left
+						else
+							ctx.drawImage(this.image, this.array[x].boxSpriteX, 33, 30, 18, this.array[x].x-18, this.array[x].y-12, 30, 18); //Right
+					}
+					break;
+					
+					case 3://Item raise
+					{							
+						if(this.array[x].itemContents == 0)	//Special Crate
+							ctx.drawImage(this.image, 145, 101, 23, 20, this.array[x].x-13, this.array[x].y-10, 23, 20);	
+						else if(this.array[x].direction == 1)
+							ctx.drawImage(this.image, 156, 14, 30, 18, this.array[x].x-12, this.array[x].y-12, 30, 18);
+						else
+							ctx.drawImage(this.image, 156, 33, 30, 18, this.array[x].x-18, this.array[x].y-12, 30, 18);
+						
+						if(this.array[x].itemContents == 0)
+							ctx.drawImage(hud.wrench, this.array[x].x-8, this.array[x].y-3-this.array[x].total, 14, 6);
+						else if(this.array[x].itemContents == 1)
+							ctx.drawImage(hud.heart, this.array[x].x-3, this.array[x].y-3-this.array[x].total, 7, 7);
+						else if(this.array[x].itemContents > 1)
+							ctx.drawImage(hud.bullets, this.array[x].x-7, this.array[x].y-3-this.array[x].total, 14, 6);
+					}
+					break;
+					
+					case 4://Wait until Dissappear
+					{
+						if(this.array[x].itemContents == 0)	//Special Crate
+							ctx.drawImage(this.image, 145, 101, 23, 20, this.array[x].x-13, this.array[x].y-10, 23, 20);
+						else if(this.array[x].direction == 1)
+							ctx.drawImage(this.image, 156, 14, 30, 18, this.array[x].x-12, this.array[x].y-12, 30, 18);
+						else
+							ctx.drawImage(this.image, 156, 33, 30, 18, this.array[x].x-18, this.array[x].y-12, 30, 18);
+						
+						if(this.array[x].itemContents == 1)
+							ctx.drawImage(hud.heart, this.array[x].x-3, this.array[x].y-3-this.array[x].total, 7, 7);
+						else if(this.array[x].itemContents == 2)
+							ctx.drawImage(hud.bullets, this.array[x].x-7, this.array[x].y-3-this.array[x].total, 14, 6);
+					}
+					break;
+					
+				}	
+			}
+		}
+	
+	}
+}
+
+function crateObject (x, y, ID, direction)
+{
+	this.x = x;
+	this.y = y;
+
+	this.id = ID; 
+	this.direction = direction;
+	this.speedX = 2*direction;
+	this.speedY = .5;
+	
+	this.width = 20;	//used for collisions
+	this.height = 12;
+	
+	this.xOriginal = x;
+	this.xLimit = this.xOriginal + this.direction;
+	this.yOriginal = y;
+	this.xGrowthFactor = .07;
+
+	this.animationCounter = random(5, 20);
+	this.currentAnimationCounter = 0;
+
+	this.animationFrame = random(0, 11);
+	this.parachuteFrame = random(0, 7);
+	this.boxSpriteX = 1;
+	this.parachuteSpriteX = 1;
+	
+	this.itemContents = 0;
+	/*
+		0 - Car Part
+		1 - Health
+		2 - Ammo
+		More perhaps?
+	*/
+	this.movement = 1;
+	this.total = 0;
+	
+	this.inAir = true;
+
+	this.state = 0;
+	/*
+		0 - In air
+		1 - On Ground (Unopened)
+		2 - Opened
+		3 - Item raise
+		4 - Wait for disappear
+	*/
+}
+
+//-----PAYPHONE-----------------------------------------
+function payphoneObject()
+{
+	this.image = new Image();	
+    this.image.src = "Phone both.png";
+	
+	this.width = 15;
+	this.height = 27;
+	
+	this.x = 214;
+	this.y = 96;
+	
+	this.timeReference = new Date();
+	this.downArrowElapsedTime = this.timeReference.getTime();
+    this.downArrowCurrentTime = this.timeReference.getTime();
+	
+	this.spawnSpecialCrate = false; //This tells the crate object handler to spawn a special crate
+	this.crateInbound = false;	//Is the special crate on screen?
+	
+	this.spawnHealthCrate = false;
+	this.spawnHealthCounter = 0;
+	
+	this.ringing = false; //This keeps track of whether the phone is ringing or not.
+	this.busy = false;
+	this.itemContents;
+	this.timer;
+	
+	this.activatePhone = function()
+	{
+		if(!this.ringing && !this.busy)
+		{			
+			var number;
+			
+			if(level+1 < 19)
+				this.timer = random(5*(level+1), 5*(level+1)+5); 
+			else
+				this.timer = random(95, 99);
+			
+			if(!haveCarPart && !this.crateInbound && crate.currentSpecialCrateCount < 2)
+			{	
+				myGamePiece.coins -= 10;
+				phoneRingSound.play();
+				this.itemContents = 0;
+				this.ringing = true;
+				this.crateInbound = true;
+			}
+			else if(this.spawnHealthCounter < 3 && crate.currentSpecialCrateCount < 2)
+			{
+				myGamePiece.coins -= 10;
+				phoneRingSound.play();
+				this.spawnHealthCrate = true;
+				this.spawnHealthCounter ++;
+				this.itemContents = 1;
+				this.ringing = true;
+			}
+			else
+			{
+				this.busy = true;
+				lineBusySound.play();
+			}
+		}
+	}
+	
+	this.update = function()	
+	{
+		if(myGamePiece.coins < 10 || car.UIstate > 7)
+			ctx.drawImage(this.image, 0, 0, 19, 29, this.x-2, this.y-2, 19, 29);
+		else
+			ctx.drawImage(this.image, 19, 0, 19, 29, this.x-2, this.y-2, 19, 29);
+	
+		if(this.ringing && !isPlaying(phoneRingSound))
+		{
+			this.ringing = false;
+			counters.addCounter(this.timer, this.itemContents); //This is so the counter will spawn after the phone rings.
+		}
+		else(this.busy && !isPlaying(lineBusySound))
+			this.busy = false;
+	
+		if(myGamePiece.coins >= 10 && !haveCarPart && car.UIstate < 8 && counters.currentCounterCount == 0)
+		{
+			this.timeReference = new Date();
+			this.downArrowCurrentTime = this.timeReference.getTime();
+
+			if(this.downArrowCurrentTime - this.downArrowElapsedTime > 200) //This is the only place this is needed
+			{
+				this.timeReference = new Date();
+				this.downArrowElapsedTime = this.timeReference.getTime();
+				
+				if(this.downArrowFrame == 0)
+					this.downArrowFrame = 1;
+				else
+					this.downArrowFrame = 0;
+			}
+			
+			ctx.drawImage(hud.downArrow, 22*this.downArrowFrame, 0, 22, 18, this.x-4, this.y-26, 22, 18);
+		}
+	}
+	
+	this.justDraw = function()
+	{
+		if(myGamePiece.coins < 10 || car.UIstate > 7)
+			ctx.drawImage(this.image, 0, 0, 19, 29, this.x-2, this.y-2, 19, 29);
+		else
+			ctx.drawImage(this.image, 19, 0, 19, 29, this.x-2, this.y-2, 19, 29);
+	
+		if(myGamePiece.coins >= 10 && !haveCarPart && car.UIstate < 8 && counters.currentCounterCount == 0)
+			ctx.drawImage(hud.downArrow, 22*this.downArrowFrame, 0, 22, 18, this.x-4, this.y-26, 22, 18);
+	}
+	
+	this.reset = function()
+	{
+		this.spawnSpecialCrate = false; //This tells the crate object handler to spawn a special crate
+		this.crateInbound = false;	//Is the special crate on screen?
+		
+		this.spawnHealthCrate = false;
+		this.spawnHealthCounter = 0;
+		
+		this.ringing = false; //This keeps track of whether the phone is ringing or not.
+		this.busy = false;
+		this.itemContents = -1;
+		this.timer = 0;
+	}
+}
+
+function counterHandler()
+{
+	this.timeReference = new Date();
+	this.currentTime = this.timeReference.getTime();
+	this.elapsedTime = this.timeReference.getTime();
+
+	this.counterLimit = 2;
+	this.array = new Array(this.counterLimit);
+	this.currentCounterCount = 0;
+	
+	this.numbers = new Image();
+	this.numbers.src = "Numbers.png";
+	
+	this.icons = new Image();
+	this.icons.src = "Icons.png";
+	
+	this.update = function()
+	{
+		if(this.currentCounterCount > 0)
+		{
+			this.timeReference = new Date();
+			this.currentTime = this.timeReference.getTime();
+		
+			for(x = 0; x < this.counterLimit; x++) //Draw the counters
+			{
+				if(this.array[x] != null)
+				{
+					ctx.drawImage(this.numbers, 15*this.array[x].tens, 0, 15, 25, 207, this.array[x].y, 15, 25);
+					ctx.drawImage(this.numbers, 15*this.array[x].ones, 0, 15, 25, 221, this.array[x].y, 15, 25);
+
+					if(this.array[x].item == 0) //Special Crate
+						ctx.drawImage(this.icons, 0, 0, 19, 19, 240, this.array[x].y+4, 19, 19);
+					else
+						ctx.drawImage(this.icons, 19, 0, 22, 18, 246, this.array[x].y+5, 22, 18);
+						
+				}
+			}
+		
+			if(this.currentTime - this.elapsedTime > 1000) //1 second update
+			{
+				this.elapsedTime = this.timeReference.getTime();
+			
+				for(x = 0; x < this.counterLimit; x++)
+				{
+					if(this.array[x] != null)
+					{
+						this.array[x].ones--;
+						
+						if(this.array[x].ones == -1)
+						{						
+							if(this.array[x].tens > 0)
+							{
+								this.array[x].tens--;
+								this.array[x].ones = 9;
+							}
+							else
+							{
+								crate.addSpecialCrate(this.array[x].item);
+								this.removeCounter(x);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	this.addCounter = function(limit, item)
+	{
+		var newSpotAdded = false;
+		
+		if(this.currentCounterCount < this.counterLimit)
+		{		
+			if(this.currentCounterCount == 0)
+				this.elapsedTime = this.timeReference.getTime(); //So that the first second doesn't get shorted out.
+		
+			for(x = 0; x < this.counterLimit; x++)
+			{
+				if(this.array[x] == null && !newSpotAdded)
+				{								
+					this.array[x] = new counterObject(limit, item);
+					
+					if(x == 0)
+					{ 
+						if(this.array[1] == null)
+							this.array[x].y = 71;
+						else
+							this.array[x].y = 47;
+					}
+					else
+					{
+						if(this.array[0] == null)
+							this.array[x].y = 71;
+						else
+							this.array[x].y = 47;
+					}
+					
+					this.currentCounterCount++;
+					newSpotAdded = true;
+				}
+			}
+			
+		}
+	}
+	
+	this.removeCounter = function(id)
+	{
+		if(this.currentCounterCount > 0)
+		{
+			this.array[id] = null;
+			
+			if(id == 0 && this.array[1] != null) //Shifting the other counter down if needed to.
+				this.array[1].y = 71;
+			else if(id == 1 && this.array[0] != null)
+				this.array[0].y = 71;
+
+			this.currentCounterCount--;
+		}
+	}
+	
+	this.justDraw = function()
+	{
+		for(x = 0; x < this.counterLimit; x++) //Draw the counters
+		{
+			if(this.array[x] != null)
+			{
+				ctx.drawImage(this.numbers, 15*this.array[x].tens, 0, 15, 25, 207, this.array[x].y, 15, 25);
+				ctx.drawImage(this.numbers, 15*this.array[x].ones, 0, 15, 25, 221, this.array[x].y, 15, 25);
+
+				if(this.array[x].item == 0) //Special Crate
+					ctx.drawImage(this.icons, 0, 0, 19, 19, 240, this.array[x].y+4, 19, 19);
+				else
+					ctx.drawImage(this.icons, 19, 0, 7, 7, 246, this.array[x].y+49, 7, 7);
+					
+			}
+		}
+	}
+	
+	this.reset = function()
+	{
+		this.array = new Array(this.counterLimit);
+		this.currentCounterCount = 0;
+	}	
+}
+
+function counterObject(counterLimit, itemContents)
+{
+	this.item = itemContents;
+	/*
+		special crate = 0
+		Heart Box = 1
+	*/
+	this.tens = Math.floor(counterLimit/10);
+	this.ones = counterLimit%10;
+	this.y;
+}
+
+function isPlaying(audelem)	//Just so I can check if the sound is no longer playing. 
+{ return !audelem.paused; }
+
+function carObject()
+{
+	this.x = 116;
+	this.y = 89;
+	this.width = 70;
+	this.height = 32;
+	this.speedX = 0;
+
+	this.state = 0;
+	/*
+		0 - Broken 
+		1 - Fixed Lid Open
+		2 - Fixed Closed
+		3 - Moving
+		4 - Wait for disappear
+	*/
+	
+	this.UIstate = 0;
+	/*
+		0 - Nothing 
+		1 - Down Arrow
+		2 - Slide In Engine
+		3 - Picking A part -- It needs it own state because it shouldn't be done every frame.
+		4 - Fixing the Engine
+		5 - Slide It Back
+	*/
+	
+	this.car = new Image();
+    this.car.src = "Car.png";
+	
+	this.engineOutline = new Image();
+	this.engineOutline.src = "Engine background.png";
+	
+	this.buttons = new Image();
+	this.buttons.src = "buttons.png";
+	
+	this.fixbarContainer = new Image();
+	this.fixbarContainer.src = "Fixbar Container.png";
+	
+	this.fixbar = new Image();
+	this.fixbar.src = "fixbar.png";
+	
+	this.carParts = new Image();
+	this.carParts.src = "CarParts.png";
+	
+	this.fullEngine = new Image();
+	this.fullEngine.src = "Full Engine background.png";
+	
+	this.fade = new Image();
+	this.fade.src = "Fade.png";
+	
+	this.engineY = -86;
+	this.engineYSpeed = 6;//How fast the Engine moves when coming on screen
+	
+	this.startedOnEngine = false; //This is to indicate that we need to restart some variables when we start doing this.
+	
+	this.fixedParts = 0;	//How many parts are currently fixed
+	this.partCurrentlyFixing = -1;
+	this.array = [0, 0, 0, 0, 0, 0];
+	/*
+		0 - Not Chosen
+		(1 - 19) - Chosen, but not Fixed
+		20 - Fixed
+	*/
+	this.currentButtonPress = 0;	// An index in the FixingArray
+	this.fixingArray = [-1, -1, -1, -1, -1, -1, -1, -1, -1];//At most, you can have 8 letters to type
+	this.pressedKey = false; //This prevents the player from holding down keys to do the button mashing part
+	this.keyArray = [81, 87, 69, 82, 84, 89, 86, 66, 78, 74, 85, 71, 77, 75, 79, 65, 90, 76, 188, 80, 73, 190];//There's probably a better way of doing this, but I can't think of it now.
+	//It should be the array for QWERTYVBNJUGMKOAZL,PI.
+	this.fixLimit = 20; //It takes 20 hits on the keyboard currently to fix a part.
+	
+	//For whatever part is flashing on screen
+	this.partX = -1;
+	//All of the parts on the sprite sheet start with a 0 so no need for this.partY
+	this.partXSize = -1;
+	this.partYSize = -1;
+	this.partPosX = -1;
+	this.partPosY = -1;
+	
+	this.partTempX = -1;
+	this.partTempXSize = -1;
+	this.partTempYSize = -1;
+	this.partTempPosX = -1;
+	this.partTempPosY = -1;
+		
+	//I should have really made this into it's own dedicated method
+	this.timeReference = new Date();
+	this.elapsedTime = this.timeReference.getTime();
+    this.currentTime = this.timeReference.getTime();
+	this.downArrowFrame = 0;
+	
+	this.animationElapsedTime = this.timeReference.getTime();
+    this.animationCurrentTime = this.timeReference.getTime();
+	this.animationFrame = 0;	//For when the car is moving or bouncing.
+	this.auxillaryAnimationCounter = 0;
+	this.blinkCounter = 0; 
+	this.blinkLimit = 7;
+	
+	this.carAnimationSpeed = 40;
+	
+	this.synchronization = false; //This is to get the car and the engine bouncing at the same rate.
+	
+	this.restartEngine = function(howFarWeAreRestarting)
+	{
+		this.x = 116;	//If we are resetting the car for a new level, we can reset the x coordinate here.
+		this.speedX = 0;
+		this.animationFrame = 0;
+		this.auxillaryAnimationCounter = 0;
+
+	
+		if(howFarWeAreRestarting == 0)//Resuming the same part for some reason
+		{
+			//For when the engine comes back on screen.
+			this.engineY = -86;
+			this.engineYSpeed = 6;
+			
+			//You would restart the run of buttons
+			this.currentButtonPress = 0;
+		}
+		else if(howFarWeAreRestarting == 1)//Restart on a new Part
+		{
+			//For when the engine comes back on screen.
+			this.engineY = -86;
+			this.engineYSpeed = 6;
+			
+			//You would restart the run of buttons
+			this.currentButtonPress = 0;
+			
+			//Each part has its own run of buttons.
+			this.fixingArray = [-1, -1, -1, -1, -1, -1, -1, -1, -1];
+			
+			//So the fixed part will blink properly
+			this.blinkCounter = 0;
+			
+			//So there isn't a rouge frame of the wrong car part blinking on screen.
+			this.partX = -1;
+			this.partXSize = -1;
+			this.partYSize = -1;
+			this.partPosX = -1;
+			this.partPosY = -1;
+			
+			this.partTempX = -1;
+			this.partTempXSize = -1;
+			this.partTempYSize = -1;
+			this.partTempPosX = -1;
+			this.partTempPosY = -1;
+	
+		}
+		else if(howFarWeAreRestarting == 2)//Restart the whole thing.
+		{
+			this.carAnimationSpeed = 40;
+		
+			//For when the engine comes back on screen.
+			this.engineY = -86;
+			this.engineYSpeed = 6;
+			
+			this.currentButtonPress = 0;//You would restart the run of buttons
+			
+			this.fixingArray = [-1, -1, -1, -1, -1, -1, -1, -1, -1];//Each part has its own run of buttons.
+			
+			this.blinkCounter = 0;//So the fixed part will blink properly
+			
+			//So there isn't a rouge frame of the wrong car part blinking on screen.
+			this.partX = -1; 
+			this.partXSize = -1;
+			this.partYSize = -1;
+			this.partPosX = -1;
+			this.partPosY = -1;
+			
+			this.partTempX = -1;
+			this.partTempXSize = -1;
+			this.partTempYSize = -1;
+			this.partTempPosX = -1;
+			this.partTempPosY = -1;
+			
+			this.animationFrame = 0;//So the animation restarts from the begining.
+			
+			//Reset how many parts we've fixed and the current one we are fixing.
+			this.fixedParts = 0;
+			this.partCurrentlyFixing = -1;
+			this.array = [0, 0, 0, 0, 0, 0];	
+
+			this.UIstate = 0;
+			this.state = 0;
+		}
+	}
+	
+	this.update = function()	
+	{
+		switch(this.state)//All Cosmetic
+		{
+			case 0://Broken Car
+			{
+				ctx.drawImage(this.car, 0, 0, 74, 34, this.x, 89, 74, 34);
+				clouds.update();
+			}
+			break;
+				
+			case 1:	//Fixed Lid Open
+			{
+				ctx.drawImage(this.car, 148+this.animationFrame*74, 0, 74, 34, this.x, 89, 74, 34);
+				
+				this.timeReference = new Date();
+				this.animationCurrentTime = this.timeReference.getTime();
+
+				if(this.animationCurrentTime - this.animationElapsedTime > this.carAnimationSpeed)
+				{
+					this.timeReference = new Date();
+					this.animationElapsedTime = this.timeReference.getTime();
+					this.animationCurrentTime = this.timeReference.getTime();
+					
+					if(this.animationFrame == 0)
+						this.animationFrame = 1;
+					else
+						this.animationFrame = 0;
+					
+					this.synchronization = true;
+				}
+			}
+			break;
+			
+			case 2: //Fixed Lid Closed
+			{
+				ctx.drawImage(this.car, 296+this.animationFrame*74, 0, 74, 34, this.x, 89, 74, 34);
+				
+				this.timeReference = new Date();
+				this.animationCurrentTime = this.timeReference.getTime();
+
+				if(this.animationCurrentTime - this.animationElapsedTime > this.carAnimationSpeed) 
+				{
+					this.timeReference = new Date();
+					this.animationElapsedTime = this.timeReference.getTime();
+					this.animationCurrentTime = this.timeReference.getTime();
+					
+					if(this.animationFrame == 0)
+						this.animationFrame = 1;
+					else
+						this.animationFrame = 0;
+				}
+				
+			}
+			break;
+
+			case 3: //Rolling
+			{
+				ctx.drawImage(this.car, 370+this.animationFrame*74, 0, 74, 34, this.x, 89, 74, 34);
+				
+				this.timeReference = new Date();
+				this.animationCurrentTime = this.timeReference.getTime();
+
+				if(this.animationCurrentTime - this.animationElapsedTime > this.carAnimationSpeed)
+				{
+					this.timeReference = new Date();
+					this.animationElapsedTime = this.timeReference.getTime();
+					this.animationCurrentTime = this.timeReference.getTime();
+					
+					this.animationFrame++;
+					
+					if(this.animationFrame >= 6 )
+						this.animationFrame = 0;
+				}
+			
+			
+			}
+			break;
+			
+			case 4: //dark lid open
+			{
+				ctx.drawImage(this.car, 74, 0, 74, 34, this.x, 89, 74, 34);
+				clouds.update();
+			}
+			break;
+		}
+		
+		switch(this.UIstate)//All Functional
+		{
+			case 0:		//Nothing
+				break;
+		
+			case 1:		//Down Arrow
+			{
+				if(haveCarPart)
+				{
+					this.timeReference = new Date();
+					this.currentTime = this.timeReference.getTime();
+
+					if(this.currentTime - this.elapsedTime > 200) //This is the only place this is needed
+					{
+						this.timeReference = new Date();
+						this.elapsedTime = this.timeReference.getTime();
+						
+						if(this.downArrowFrame == 0)
+							this.downArrowFrame = 1;
+						else
+							this.downArrowFrame = 0;
+					}
+																				
+					ctx.drawImage(hud.downArrow, 22*this.downArrowFrame, 0, 22, 18, 139, 66, 22, 18);
+				}
+			}
+			break;
+				
+			case 2:		//Slide in Engine
+			{
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentTime - this.elapsedTime > 28)//This is the only place this is needed
+				{
+					this.timeReference = new Date();
+					this.elapsedTime = this.timeReference.getTime();
+
+					if(this.engineYSpeed == -3)
+					{
+						this.UIstate = 3;
+						this.engineYSpeed = 1;
+					}
+					
+					switch(this.engineY)
+					{
+						case -8:
+							this.engineYSpeed = 3;
+							break;
+							
+						case -2:
+							this.engineYSpeed = 2;
+							break;
+							
+						case 8:
+							this.engineYSpeed = -3;
+							break;
+						
+					}
+					
+					this.engineY += this.engineYSpeed;
+				}
+				
+				ctx.drawImage(this.engineOutline, 76, this.engineY);
+			}
+			break;
+			
+			case 3:	//Pick a part
+			{
+				if(this.partCurrentlyFixing == -1)	//If we are not fixing a part currently, pick One
+				{				
+					if(this.fixedParts == 5)	//If all the other parts have been fixed, fix the engine last.
+						this.partCurrentlyFixing = 5;
+					else
+					{
+						do
+						{
+							this.partCurrentlyFixing = random(0, 4); //We can pick through 0 - 4 at random. It's more of a variety
+						}
+						while (this.array[this.partCurrentlyFixing] != 0);
+					}
+					
+					//Get the sprite demensions, position, and what order to press the buttons here so we don't do it every frame.
+					switch(this.partCurrentlyFixing)
+					{
+						case 0:	//Top Left
+							this.partX = 0;
+							this.partXSize = 22;
+							this.partYSize = 19;
+							this.partPosX = 99;
+							this.partPosY = 20;
+							this.fixingArray = [0, 1, 2, 3, 8, 12, 18, 21]; //QWERNM,. in that order
+							break;
+							
+						case 1:	//Top Right
+							this.partX = 22;
+							this.partXSize = 22;
+							this.partYSize = 24;
+							this.partPosX = 167;
+							this.partPosY = 19;
+							this.fixingArray = [0, 19, 15, 17, 16, 18, -1 , -1]; //QPALZ, in that order
+							break;
+							
+						case 2:	//Bottom Left
+							this.partX = 44;
+							this.partXSize = 27;
+							this.partYSize = 15;
+							this.partPosX = 92;
+							this.partPosY = 54;
+							this.fixingArray = [6, 7, 8, -1, -1, -1, -1, -1]; //VBN in that order
+							break;
+							
+						case 3:	//Bottom Right
+							this.partX = 71;
+							this.partXSize = 34;
+							this.partYSize = 48;
+							this.partPosX = 159;
+							this.partPosY = 39;
+							this.fixingArray = [8, 9, 20, 12, 13, 14, -1, -1]; //NJIMKO in that order
+							break;
+							
+						case 4:	//Bottom Mid
+							this.partX = 105;
+							this.partXSize = 40;
+							this.partYSize = 22;
+							this.partPosX = 119;
+							this.partPosY = 56;
+							this.fixingArray = [19, 20, 5, 3, 1, -1, -1, -1]; //PIYRW in that order
+							break;
+							
+						case 5: //Engine
+							this.partX = 145;
+							this.partXSize = 47;
+							this.partYSize = 37;
+							this.partPosX = 120;
+							this.partPosY = 23;
+							this.fixingArray = [5, 10, 9, 8, 7, 11, -1, -1]; //YUJNBG in that order
+							break;
+					}
+					
+					
+					this.partTempX = this.partX;
+					this.partTempXSize = this.partXSize;
+					this.partTempYSize = this.partYSize;
+					this.partTempPosX = this.partPosX;
+					this.partTempPosY = this.partPosY;
+				}
+			
+				this.UIstate = 4; //At this point a part should be picked, whether we are resuming on one or 
+				ctx.drawImage(this.engineOutline, 76, this.engineY); //You still have to draw the Engine background here or it will blink out of exitistence
+			}
+			break;
+			
+			case 4:	//Fixing the engine
+			{
+				//----------Rendering the Letters
+				this.letterPosX = 4;	//Starting X position On Screen 
+				this.letterPosY = 33;	//Starting Y position On Screen
+				this.letterY = 0;	//On the Sprite
+				
+				for(i = 0; i < this.fixingArray.length; i++)
+				{
+					if(this.fixingArray[i] != -1)//If there is a letter there
+					{
+						if(i == this.currentButtonPress)//If this is the current button we are working on make it darker
+							this.letterY = 18;
+						else
+							this.letterY = 0;	
+						
+						//Draw the current letter on screen
+						ctx.drawImage(this.buttons, this.fixingArray[i]*22, this.letterY, 22, 18, this.letterPosX, this.letterPosY, 22, 18);
+					}
+					
+					//Move to the next Position
+					switch(i)
+					{
+						case 2:
+							this.letterPosX = 214;
+						break;
+						
+						case 5:
+							this.letterPosX = 28;
+							this.letterPosY = 56;
+						break;
+						
+						case 6:
+							this.letterPosX = 238;
+						break;
+						
+						default:
+							this.letterPosX += 25;
+					}
+				
+				}
+								
+				//----Getting the input
+				//Check if the player is exiting from fix mode
+				if(myGameArea.keys && (myGameArea.keys[40] || myGameArea.keys[32] || myGameArea.keys[38] || myGameArea.keys[37] || myGameArea.keys[39]))
+				{
+					myGamePiece.allowInput = true;
+					this.UIstate = 0;
+						//EXIT FROM THE MODE
+				}
+				
+				if (myGameArea.keys && !this.pressedKey)
+				{
+									
+					for(i = 0; i < this.keyArray.length; i++)
+					{
+						if(myGameArea.keys[this.keyArray[i]])// Has one of the keys been pressed?
+						{
+							this.pressedKey = true; //It gets set to false when the player lets go of all of the keys
+
+							if(i == this.fixingArray[this.currentButtonPress]) //Are we pushing the right button?
+							{
+								this.array[this.partCurrentlyFixing]++;	//Up the counter that we are fixing	the right part					
+								this.currentButtonPress = (this.currentButtonPress + 1) % this.fixingArray.length; //Cycle throught the buttons we are pushing
+								
+								carFix.currentTime = 0;
+								carFix.play();
+								
+								if(this.fixingArray[this.currentButtonPress] == -1) // If we hit a spot that is out of bounds
+									this.currentButtonPress = 0; //Go back to the begining
+							}
+							else
+							{
+								carBreak.currentTime = 0;
+								carBreak.play();
+								
+								if(this.array[this.partCurrentlyFixing]-1 >= 0)
+									this.array[this.partCurrentlyFixing]--;
+
+							}
+							
+							if(this.array[this.partCurrentlyFixing] >= this.fixLimit) //I make this a variable, because I feel I'm going to tweak it later.
+							{
+								this.fixedParts++;
+								this.array[this.partCurrentlyFixing] = this.fixLimit;
+								
+								if(this.fixedParts < 6)
+								{
+									myGamePiece.allowInput = true;
+									healthSound.play();
+									this.UIstate = 5;
+								}
+								else
+								{
+									this.UIstate = 7;	//Fixed the entire Car
+									this.state = 1;	 	//Car is now bouncing
+									carFixedSound.play();
+									carStartedSound.play();
+									gameState = 3;
+									truck.reset(); //So the truck is not blocking the way.
+								}
+							}
+						}
+					}
+				
+				}
+
+				ctx.drawImage(this.engineOutline, 76, this.engineY); //Drawing the Engine Background
+			
+				//Flashing the current part on screen
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentTime - this.elapsedTime > 150) //This is the only place we need this
+				{
+					this.timeReference = new Date();
+					this.elapsedTime = this.timeReference.getTime();
+					this.blinkON = !this.blinkON;
+					//There's no counter here because this will blink continuously until you fix it, quit, or get hit.
+				}
+				
+				ctx.drawImage(this.fixbarContainer, 92, 3); //The outside of the fixbar.
+				ctx.drawImage(this.fixbar, 94, 5, (this.array[this.partCurrentlyFixing]/this.fixLimit)*94, 5); //This will expand when you fix it more
+				
+				if(!this.blinkON)
+					ctx.drawImage(this.carParts, this.partX, 0, this.partXSize, this.partYSize, this.partPosX, this.partPosY, this.partXSize, this.partYSize);
+			
+				//this loop draws the already fixed parts on screen
+				for(j = 0; j < this.array.length; j++)
+				{
+					if(this.array[j] == this.fixLimit && j != this.partCurrentlyFixing)
+					{
+						switch(j)
+						{
+							case 0:	//Top Left
+								this.partX = 0;
+								this.partXSize = 22;
+								this.partYSize = 19;
+								this.partPosX = 99;
+								this.partPosY = 20;
+								break;
+								
+							case 1:	//Top Right
+								this.partX = 22;
+								this.partXSize = 22;
+								this.partYSize = 24;
+								this.partPosX = 167;
+								this.partPosY = 19;
+								break;
+								
+							case 2:	//Bottom Left
+								this.partX = 44;
+								this.partXSize = 27;
+								this.partYSize = 15;
+								this.partPosX = 92;
+								this.partPosY = 54;
+								break;
+								
+							case 3:	//Bottom Right
+								this.partX = 71;
+								this.partXSize = 34;
+								this.partYSize = 48;
+								this.partPosX = 159;
+								this.partPosY = 39;
+								break;
+								
+							case 4:	//Bottom Mid
+								this.partX = 105;
+								this.partXSize = 40;
+								this.partYSize = 22;
+								this.partPosX = 119;
+								this.partPosY = 56;
+								break;
+								
+							case 5: //Engine
+								this.partX = 145;
+								this.partXSize = 47;
+								this.partYSize = 37;
+								this.partPosX = 120;
+								this.partPosY = 23;
+								break;
+						}
+						
+						//Draw the other parts to screen
+						ctx.drawImage(this.carParts, this.partX, 0, this.partXSize, this.partYSize, this.partPosX, this.partPosY, this.partXSize, this.partYSize);
+					}
+				}
+			
+				//Reset these values
+				this.partX = this.partTempX;
+				this.partXSize = this.partTempXSize;
+				this.partYSize = this.partTempYSize;
+				this.partPosX = this.partTempPosX;
+				this.partPosY = this.partTempPosY;
+			
+			}
+			break;
+			
+			case 5: //Fixed a part - so now we wait like a second to see it.
+			{
+				ctx.drawImage(this.engineOutline, 76, this.engineY); //Drawing the Engine Background
+				ctx.drawImage(this.fixbarContainer, 92, 3); //The outside of the fixbar.
+				
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentTime - this.elapsedTime > 100)
+				{
+					this.timeReference = new Date();
+					this.elapsedTime = this.timeReference.getTime();
+					this.blinkON = !this.blinkON;
+					this.blinkCounter++;
+					
+					if(this.blinkCounter == this.blinkLimit)
+					{
+						this.UIstate = 6;						
+						this.blinkCounter = 0;
+						this.engineYSpeed = -2; //The speed to start raising the Engine back up
+						this.blinkON = false;
+					}	
+				}
+				
+				if(!this.blinkON)
+					ctx.drawImage(this.fixbar, 94, 5, this.array[this.partCurrentlyFixing]*5, 5);//Blink the Fixbar
+				
+				ctx.drawImage(this.carParts, this.partX, 0, this.partXSize, this.partYSize, this.partPosX, this.partPosY, this.partXSize, this.partYSize);			
+			}
+			break;
+			
+			case 6: //Raise the engine back up.
+			{
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentTime - this.elapsedTime > 28)//This is the only place this is needed
+				{
+					this.timeReference = new Date();
+					this.elapsedTime = this.timeReference.getTime();
+					
+					if(this.engineY <= -86)
+					{
+						this.UIstate = 0;			   //Set it back to nothing.
+						this.partCurrentlyFixing = -1; //We need to pick a new part.
+						this.spawnHealthCounter = 0;   //So you can get more hearts
+					}
+					
+					switch(this.engineY)
+					{
+						case -9:
+							this.engineYSpeed = 6;
+							break;
+							
+						case -3:
+							this.engineYSpeed = 3;
+							break;
+							
+						case 7:
+							this.engineYSpeed = -3;
+							break;
+						
+					}
+					
+					this.engineY += this.engineYSpeed;
+				}
+				
+				ctx.drawImage(this.engineOutline, 76, this.engineY);
+			}
+			break;
+			
+			case 7: //Fixed the car
+			{
+				//Engine Bouncing
+				//Everything else it stopped
+				//Car started Sound
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentTime - this.elapsedTime > 2500)//This is the only place this is needed
+				{
+					gameState = 1; //Go Back to normal
+					this.UIstate = 8;
+				}
+				
+				ctx.drawImage(this.fullEngine, 76, 6+this.animationFrame);//This gets updated in the other switch statement		
+		
+				if(!isPlaying(carSound) && !isPlaying(carStartedSound))
+					carSound.play();
+			}
+			break;
+			
+			case 8: //Fixed the car w/ Arrow above it
+			{	
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentTime - this.elapsedTime > 200) //This is the 2nd place this is needed
+				{
+					this.timeReference = new Date();
+					this.elapsedTime = this.timeReference.getTime();
+					
+					if(this.downArrowFrame == 0)
+						this.downArrowFrame = 1;
+					else
+						this.downArrowFrame = 0;
+				}
+																			
+				ctx.drawImage(hud.downArrow, 22*this.downArrowFrame, 0, 22, 18, 91, 91, 22, 18);
+				
+				
+				ctx.drawImage(this.fullEngine, 76, 6+this.animationFrame);//This gets updated in the other switch statement		
+		
+				if(!isPlaying(carSound) && !isPlaying(carStartedSound))
+					carSound.play();
+			}
+			break;
+			
+			case 9: //Wait a moment with the hood closed
+			{
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+			
+				if(this.currentTime - this.elapsedTime > 1500)//This is the only place this is needed
+				{
+					this.UIstate = 10;
+					this.state = 3;
+					driveAwaySound.play();
+				}
+			}
+			break;
+			
+			case 10: //Drive left, killing any zombie that comes in it's path.
+			{
+				//Active hitbox Checking.
+				
+				for(a = 0; a < enemies.enemyLimit; a++)
+				{
+					//Inside of the Collsionbox
+					if(enemies.array[a] != null 
+					&& this.x < enemies.array[a].x  + enemies.array[a].width 
+					&& this.x + this.width > enemies.array[a].x 
+					&& this.y < enemies.array[a].y  + enemies.array[a].height 
+					&& this.y + this.height > enemies.array[a].y 
+					&& enemies.array[a].state != 5) //It isn't already exploded.
+					{
+						enemies.array[a].initiateGib();
+						enemies.array[a].state = 5; 
+						explosionSound.currentTime = 0;
+						explosionSound.play();
+					}
+				}
+			
+				if(this.x < -114)
+				{
+					this.UIstate = 11;
+					this.state = 5; //Intentionally not a state so that it will not draw the car.
+					this.animationFrame = 0;
+				}
+				else
+				{
+					if(this.speedX <= 3)   //Accelerate the car
+						this.speedX += .2;
+					
+					this.x -= this.speedX;
+				}
+			}
+			break;
+			
+			case 11:	//Wait a little bit.
+			{
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentTime - this.elapsedTime > 2000 && !isPlaying(driveAwaySound))
+				{
+					this.timeReference = new Date();
+					this.elapsedTime = this.timeReference.getTime();
+					this.UIstate = 12;
+					
+				}
+			}
+			break;
+			
+			case 12: //Fade out the screen
+			{
+				ctx.drawImage(this.fade, 300*this.animationFrame, 0, 300, 135, 0, 0, 300, 135);
+				
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentTime - this.elapsedTime > 75) //This is the 2nd place this is needed
+				{
+					this.timeReference = new Date();
+					this.elapsedTime = this.timeReference.getTime();
+					
+					if(this.animationFrame < 8)
+						this.animationFrame++;
+					
+					this.auxillaryAnimationCounter++;
+					
+					if(this.auxillaryAnimationCounter == 20)
+					{
+						//RESET ALL THE VALUES HERE
+						haveCarPart = false;
+						gameOverHud = false;
+						gOobject.gameOverTimer = 0;
+
+						//Clear the arrays
+						clouds.reset();
+						enemies.reset();
+						crate.reset();
+						counters.reset();
+						truck.reset();
+						coint.reset();
+						myGamePiece.reset(1);	//without changing the course of the 
+								
+						payphone.crateInbound = false;	
+						
+						level++;		//Up the level 
+						gameState = 3;
+						this.UIstate = 13;
+						myGamePiece.allowInput = false;
+						this.animationFrame = 0;
+						this.auxillaryAnimationCounter = 0;
+					}
+				}
+			
+			}
+			break;
+			
+			case 13: //Fade in
+			{
+				ctx.drawImage(this.fade, 300*(8-this.animationFrame), 0, 300, 135, 0, 0, 300, 135);
+				
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentTime - this.elapsedTime > 75) //This is the 2nd place this is needed
+				{
+					this.timeReference = new Date();
+					this.elapsedTime = this.timeReference.getTime();
+					
+					if(this.animationFrame < 8)
+						this.animationFrame++;
+						
+					this.auxillaryAnimationCounter++;
+					
+					if(this.auxillaryAnimationCounter == 30)
+					{
+						this.UIstate = 14;
+						this.x = 314;
+						this.speedX = 2.5;
+						this.state = 3;
+						this.carAnimationSpeed = 90;
+						this.animationFrame = 0;
+						carbreakDownSound.play();
+					}
+				}
+			}
+			break;
+			
+			case 14: //Drive back in
+			{
+				if(this.x < 116)
+				{
+					this.state = 2;
+					this.UIstate = 15;
+					this.carAnimationSpeed = 500; //Slow the car down
+					this.animationFrame = 0;
+					this.speedX = 0;
+					this.x = 116;
+				}
+				else
+				{
+					if(this.speedX > .2 && this.x < 194)   //Deaccelerate the car
+						this.speedX -= .04;
+					
+					this.x -= this.speedX;
+				}
+			}
+			break;
+			
+			case 15: //Wait for the sound to be done.
+			{
+				if(!isPlaying(carbreakDownSound))
+				{
+					this.UIstate = 16;
+					this.state = 4; //Lid open
+					
+					//Force a Jump
+					jumpSound.play();
+				
+					myGamePiece.x = 150;
+					myGamePiece.y = 96;
+					myGamePiece.speedX = -3;
+					myGamePiece.onGround = false;
+					myGamePiece.speedY = -10;
+					this.auxillaryAnimationCounter = 0;
+				}
+			
+			}
+			break;
+			
+			case 16: //Jumping out the car
+			{
+				move();	
+				myGamePiece.newPos();
+				myGamePiece.update();
+			
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentTime - this.elapsedTime > 75) //This is the 2nd place this is needed
+				{
+					this.timeReference = new Date();
+					this.elapsedTime = this.timeReference.getTime();
+					
+					if(this.animationFrame < 8)
+						this.animationFrame++;
+						
+					this.auxillaryAnimationCounter++;
+					
+					if(myGamePiece.onGround)
+					{
+						myGamePiece.speedX = 0;
+						myGamePiece.right = true;
+					}
+					if(this.auxillaryAnimationCounter == 26)
+					{
+						this.restartEngine(2);
+						gameState = 1;
+						myGamePiece.allowInput = true;
+
+					}
+				}
+			}
+			break;
+			
+		}
+	}
+}
+
+//Sprite Font (only works because it is monospaced)
+function drawFont(text, x, y)//Only does the Alphabet, -, :, ?, and !
+{
+	this.image = new Image();	
+    this.image.src = "Fixedsys font.png";
+	this.currentX = x;
+	
+	for(a = 0; a < text.length; a++)
+	{
+		var letter = text.charCodeAt(a);
+		var specialChar = 0;
+				
+		switch(letter)
+		{
+			case 58: //:
+				specialChar = 1;
+				letter = 36;
+				break;
+				
+			case 63: //?
+				specialChar = 1;
+				letter = 37;
+				break;
+				
+			case 33: //!
+				specialChar = 1;
+				letter = 38;
+				break;
+				
+			case 32: //Space
+				specialChar = 1;
+				letter = 39;
+				break;
+				
+			case 45: // -
+				specialChar = 1;
+				letter = 40;
+				break;
+		}
+		
+		if(letter >= 97 && letter <= 122)//adjust for lowercase
+			letter -= 32;
+		else if(letter >= 48 && letter <= 57)//adjust for numbers
+		{
+			specialChar = 1;
+			letter -= 22;
+		}
+		
+		if(!(letter >= 65 && letter <= 90) && specialChar == 0)
+			console.log("INVALID CHARACTER :"+letter+" "+specialChar);
+		else
+		{
+			if(specialChar == 0)
+				letter -= 65;
+			
+			var xOffset = letter%13; //0-12
+			var yOffset = 0;
+			
+			if(letter >= 13 && letter < 26)
+				yOffset = 1;
+			else if (letter >= 26 && letter < 39)
+				yOffset = 2;
+			else if(letter >= 39)
+				yOffset = 3;
+		}
+		
+		ctx.drawImage(this.image, xOffset*7, yOffset*7, 7,7, currentX, y, 7, 7);
+		
+		this.currentX += 8;
+	}
+}
+
+//--------------------------------------------
+
+function background()
+{	
+	this.ground = new Image();
+	this.ground.src = "ground.png";
+
+	this.drawBackground = function()
+	{
+		ctx.drawImage(this.ground, 0, 123, 300, 11);
+	}
+}
+
+function hudObject()
+{
+    this.heart = new Image();
+    this.heart.src = "HUD Health.png";
+	
+	this.HUDbullet = new Image();
+	this.HUDbullet.src = "HUD Bullet.png";
+	
+	this.downArrow = new Image();
+	this.downArrow.src = "Down Arrow.png";
+	
+	this.bullets = new Image();
+	this.bullets.src = "bullets.png";
+	
+	this.wrench = new Image();
+	this.wrench.src = "car part.png";
+	
+	//Blinking SCORE
+	this.timeReference = new Date();
+	this.elapsedTime = this.timeReference.getTime();
+    this.currentTime = this.timeReference.getTime();
+	this.elapsedReloadTime = this.timeReference.getTime();
+	this.animationSpeed = 200;
+	this.reloadSpeed = 50;
+	this.blinkON = false;
+	this.reached100pts = false;
+	this.blinkLimit = 8;
+	this.blinkCounter = 0;
+	this.heldScore = 0;
+	this.reloading = false;
+	this.currentReloadNumber = 0;
+
+	this.drawHUD = function()
+	{
+		//----------HEALTH-----------------
+		var currentX = 293;
+	
+		for(x = 0; x < currentHealth; x++)
+		{
+			ctx.drawImage(this.heart, currentX, 7, 7, 7);
+			currentX -= 8;
+		}
+		
+		//----------CAR PART-----------------
+		if(haveCarPart)
+			ctx.drawImage(this.wrench, 286, 32);
+		
+		
+		//----------COIN-----------------
+		currentX = 295;
+	
+		if(myGamePiece.coins <= 9)
+		{
+			for(x = 0; x < myGamePiece.coins; x++)
+			{
+				ctx.drawImage(coint.image, 0, 0, 5, 5, currentX, 25, 5, 5);
+				currentX -= 6;
+			}
+		}
+		else
+		{
+			drawFont("x"+myGamePiece.coins, 277, 24);
+		
+			ctx.drawImage(coint.image, 0, 0, 5, 5, 270, 25, 5, 5);
+		}
+		
+		
+		//----------BULLET-----------------
+		currentX = 296;
+		
+		if(this.reloading == true)
+		{
+			this.timeReference = new Date();
+			this.currentTime = this.timeReference.getTime();
+			
+			
+			
+			if(this.currentReloadNumber <= 10)
+			{
+				for(x = 0; x < this.currentReloadNumber; x++)
+				{
+					ctx.drawImage(this.HUDbullet, currentX, 15, 4, 7);
+					currentX -= 5;
+				}
+			}
+			else
+			{
+				drawFont("x"+this.currentReloadNumber, 277, 16);
+			
+				ctx.drawImage(this.bullets, 262, 17);
+			}
+			
+			if(this.currentTime - this.elapsedReloadTime > this.reloadSpeed)
+			{
+				this.timeReference = new Date();
+				this.elapsedReloadTime = this.timeReference.getTime();
+				
+			
+				if(this.currentReloadNumber < totalBulletLimit)
+				{
+					this.currentReloadNumber++;
+					reloadSound.play();
+				
+				}
+				else
+				{
+					currentBullets = totalBulletLimit;
+					this.reloading = false;
+					this.currentReloadNumber = 0;
+				}
+			}
+		}
+		else
+		{
+			if(currentBullets <= 10)
+			{
+				for(x = 0; x < currentBullets; x++)
+				{
+					ctx.drawImage(this.HUDbullet, currentX, 15, 4, 7);
+					currentX -= 5;
+				}
+			}
+			else
+			{
+				drawFont("x"+currentBullets, 277, 16);
+			
+				ctx.drawImage(this.bullets, 262, 17);
+			}
+		}
+		
+		
+		if(this.reached100pts)
+		{
+			this.timeReference = new Date();
+			this.currentTime = this.timeReference.getTime();
+
+			if(this.currentTime - this.elapsedTime > this.animationSpeed)
+			{
+				this.timeReference = new Date();
+				this.elapsedTime = this.timeReference.getTime();
+				this.blinkON = !this.blinkON;
+				this.blinkCounter++;
+				
+				if(this.blinkCounter == this.blinkLimit)
+				{
+					this.reached100pts = false;
+					this.blinkCounter = 0;
+					this.blinkON = false;
+				}	
+			}
+			
+			if(!this.blinkON)
+				drawFont("Score: "+this.heldScore, 5, 9);
+		}
+		else
+			drawFont("Score: "+score, 5, 9);
+
+		if(highScore > 0)
+			drawFont(" High: "+highScore, 5, 18);
+			
+		//drawFont("Current Down Arrow: "+myGamePiece.currentDownArrow, 30, 30);
+	}
+
+}
+
+function hitBox (x, y, xOffset, yOffset) //If you need an array of hitboxes, here you go.
+{
+	this.xWidth = x;
+	this.yHeight = y;
+	
+	this.xOffsetFromOrigin = xOffset; // Negative would imply that it is on the left side of the origin.
+	this.yOffsetFromOrigin = yOffset; // Negaitive would imply that it is above the origin.
+}
+
+function truckObject()	//There can only be one truck at a time
+{
+	this.x = -1;
+	this.y = 93;
+
+	this.hitBoxNumber = 3;
+	this.array = new Array(this.hitBoxNumber);
+	
+	this.array[0] = new hitBox(59, 60, -50, -30);
+	this.array[1] = new hitBox(21, 49, 9, -19);
+	this.array[2] = new hitBox(20, 33, 30, -3);
+	
+	this.spriteX = 0;
+	this.spriteSizeX = 0;
+	this.spriteSizeY = 0;
+	
+	this.truckImage = new Image();
+	this.truckImage.src = "truck.png";
+	
+	this.warningSymbol = new Image();
+	this.warningSymbol.src = "Truck warning.png";
+	
+	this.speed = 5;
+	
+	this.direction = 1;
+	
+	this.timeReference = new Date();
+	
+	this.truckState = 0;
+	/*
+		0 - Not ready to be spawned yet
+		1 - Ready to be spawned
+		2 - Spawned - Warning Symbol
+		3 - Spawned - Truck Driving
+	*/
+	
+	//Spawning a truck
+	this.elapsedSpawnTime = this.timeReference.getTime();
+    this.currentSpawnTime = this.timeReference.getTime();
+	this.timeDisparity = 30000; //This is the amount of time it takes for a truck to spawn at the minimum - 30 seconds
+	
+	//Animating the truck
+	this.elapsedAnimationTime = this.timeReference.getTime();
+    this.currentAnimationTime = this.timeReference.getTime();
+	this.animationSpeed = 40;
+	
+	this.spriteBoolean = false; //Since both the warning symbol and the truck are only 2 sprite animations, there's no need for a counter.
+	this.spriteTimer = 0; //This counts how many times the warning symbol flashes on and off.
+	
+	this.update = function()	
+	{
+		this.timeReference = new Date();
+		this.currentSpawnTime = this.timeReference.getTime();
+		this.currentAnimationTime = this.timeReference.getTime();
+
+		switch(this.truckState)
+		{
+			case 0://Not ready to be spawned yet
+			{
+				if(this.currentSpawnTime - this.elapsedSpawnTime > this.timeDisparity && !myGamePiece.gameOver) //Allow a truck to finish what it's doing then not spawn again
+				{
+					this.timeReference = new Date();
+					this.elapsedSpawnTime = this.timeReference.getTime();
+					this.truckState = 1;
+				}
+			}
+			break;
+			
+			case 1://Ready to be spawned
+			{
+				var randomNumber = random(1, 1000);
+				if((randomNumber == 14 || randomNumber == 114 || randomNumber == 141 || randomNumber == 41) && car.UIstate != 7)
+				{
+					this.truckState = 2;
+										
+					//Choose a direction for the truck.
+					var randomNum = random(1,2);
+					this.direction = 1;
+					
+					if(randomNum == 1)
+						this.direction = -1;
+					
+					this.spriteSizeX = 19;
+					this.spriteSizeY = 26;
+					
+					if(this.direction == 1)
+						this.x = 9;
+					else
+						this.x = 273;
+													
+					if(!myGamePiece.gameOver)
+						warningSound.play();
+				}
+			}
+			break;
+			
+			case 2://Spawned warning symbol
+			{
+				this.timeReference = new Date();
+				this.currentTime = this.timeReference.getTime();
+
+				if(this.currentAnimationTime - this.elapsedAnimationTime > 50)
+				{
+					this.timeReference = new Date();
+					this.elapsedAnimationTime = this.timeReference.getTime();
+					this.spriteBoolean = !this.spriteBoolean; //Just keep flipping it on and off.
+					this.spriteTimer++;
+					
+					if(this.spriteBoolean)
+					{
+						if(this.direction == 1)
+							this.spriteX = 1;
+						else
+							this.spriteX = 41;
+					}
+					else
+					{
+						if(this.direction == 1)
+							this.spriteX = 21;
+						else
+							this.spriteX = 61;
+					}
+					
+					if(this.spriteTimer >= 12)	//this is the only place this happens so it doesn't need a variable.
+					{
+						this.spriteTimer = 0; //Reset it right here.
+						this.truckState = 3;
+						
+						if(this.direction == 1)
+							this.x = -150;
+						else
+							this.x = 350;
+					}
+				}
+				
+				ctx.drawImage(this.warningSymbol, this.spriteX, 1, 19, 26, this.x, 85, 19, 26);	//Draw the symbol
+			}
+			break;
+			
+			case 3: //Spawned - Truck Driving
+			{
+				//Draw the truck in the center of the x and y coordinates
+				ctx.drawImage(this.truckImage, this.spriteX, 1, 100, 60, this.x-50, this.y-30, 100, 60);
+				
+				/*
+					Debug for hitboxes
+				
+					for(c = 0; c < this.hitBoxNumber; c++)
+					{
+						if(this.direction == 1)
+							ctx.drawImage(this.debugHboxes, c, 0, 1, 1, this.x + this.array[c].xOffsetFromOrigin, this.y + this.array[c].yOffsetFromOrigin, this.array[c].xWidth, this.array[c].yHeight);
+						else
+							ctx.drawImage(this.debugHboxes, c, 0, 1, 1, this.x - Math.abs(this.array[(c+1)%3].xOffsetFromOrigin), this.y + this.array[c].yOffsetFromOrigin, this.array[c].xWidth, this.array[c].yHeight);
+					}
+				*/
+
+
+				/*
+					this.array[0] = new hitBox(59, 60, -50, -30);
+					this.array[1] = new hitBox(21, 49, 9, -19);
+					this.array[2] = new hitBox(20, 33, 30, -3);
+				*/
+						
+			
+				if(isGoodTime(40) || car.UIstate != 4) //So the truck will slow down too.
+				{	
+					//Update the Sprite
+					if(this.currentAnimationTime - this.elapsedAnimationTime > this.animationSpeed)
+					{
+						this.timeReference = new Date();
+						this.elapsedAnimationTime = this.timeReference.getTime();
+						this.spriteBoolean = !this.spriteBoolean; //Just keep flipping it on and off.
+					}
+					
+					if(this.direction == 1)
+					{
+						if(this.spriteBoolean)
+							this.spriteX = 1;
+						else
+							this.spriteX = 102;
+					}
+					else
+					{
+						if(this.spriteBoolean)
+							this.spriteX = 203;
+						else
+							this.spriteX = 304;
+					}
+					
+					//This is a lot of loops so I would rather it be handled in the truck class so it will not last long
+					for(c = 0; c < this.hitBoxNumber; c++)
+					{
+						for(a = 0; a < enemies.enemyLimit; a++)
+						{
+							//Check if the enemy array isn't null or aren't already exploded.
+							this.rightMovement = (enemies.array[a] != null && enemies.array[a].state != 5 && this.direction == 1
+							&& enemies.array[a].x < this.x + this.array[c].xWidth + (this.array[c].xOffsetFromOrigin*this.direction)
+							&& enemies.array[a].x + enemies.array[a].width > this.x + (this.array[c].xOffsetFromOrigin*this.direction)
+							&& enemies.array[a].y < this.y  + this.array[c].yHeight + this.array[c].yOffsetFromOrigin
+							&& enemies.array[a].y + enemies.array[a].height > this.y + this.array[c].yOffsetFromOrigin);
+							
+							this.leftMovement = (enemies.array[a] != null && enemies.array[a].state != 5 && this.direction == -1
+							&& enemies.array[a].x < this.x + this.array[c].xWidth - Math.abs(this.array[(c+1)%3].xOffsetFromOrigin)
+							&& enemies.array[a].x + enemies.array[a].width > this.x - Math.abs(this.array[(c+1)%3].xOffsetFromOrigin)
+							&& enemies.array[a].y < this.y  + this.array[c].yHeight + this.array[c].yOffsetFromOrigin
+							&& enemies.array[a].y + enemies.array[a].height > this.y + this.array[c].yOffsetFromOrigin); //the c+1 % 3 is a specific workaround that works.
+												
+							if(this.leftMovement || this.rightMovement)//To make this if statement easier to read.
+							{
+								//Exploded, because you are not getting anything from it.
+								enemies.array[a].initiateGib();
+								enemies.array[a].state = 5; 
+
+								explosionSound.currentTime = 0;
+								explosionSound.play();
+							}
+						}
+					}
+					
+					
+					//Update position
+					this.x += this.speed*this.direction;
+				}
+				
+				//Checking if it's off screen
+				if((this.direction == 1 && this.x >= 350) || (this.direction == -1 && this.x <= -150))
+				{
+					//Reset Everything
+					this.timeReference = new Date();
+					this.elapsedSpawnTime = this.timeReference.getTime();
+				
+					this.truckState = 0;
+				}
+				else if(!isPlaying(truckSound))
+						truckSound.play();
+			}
+		}
+	}
+
+	this.reset = function() //So it can reset at any given moment
+	{
+		this.truckState = 0;
+		this.spriteTimer = 0;
+		this.spriteBoolean = false;
+		this.x = -1;
+		
+		this.timeReference = new Date();
+
+		this.elapsedSpawnTime = this.timeReference.getTime();
+		this.currentSpawnTime = this.timeReference.getTime();
+		this.elapsedAnimationTime = this.timeReference.getTime();
+		this.currentAnimationTime = this.timeReference.getTime();
+	}
+}
+
+
+
+function random(min, max)
+{
+	return Math.floor(Math.random()*(max-min+1)+min);
+}
+
+function intro()
+{
+	this.car = new Image();
+	this.car.src = "Car foreground.png";
+
+	this.barrier = new Image();
+	this.barrier.src = "Blank Space barrier.png";
+
+	this.bullet = new Image();	
+    this.bullet.src = "bullet.png";
+
+	//One solution to ensure smooth animation
+	this.Xbarrier = -65;
+	this.xbarrierOriginal = -65;
+	this.XbarrierSlideFactor = 0;
+	this.XbarrierAcceleration = .07;
+	this.XbarrierDecayAcceleration = .125;
+	this.XbarrierAccelerationLimit = 2;
+
+	this.pushBarrierR = 0;
+	this.pushBarrierROriginal = 0;
+	this.pushBarrierSlideFactorR = 1;
+	this.pushBarrierRAcceleration = .07;
+	this.pushBarrierRDecayAcceleration = .125;
+	this.pushBarrierRAccelerationLimit = 2.5;
+
+	this.pushBarrierL = 0;
+	this.pushBarrierLOriginal = 0;
+	this.pushBarrierSlideFactorL = 0;
+	this.pushBarrierLAcceleration = .069;
+	this.pushBarrierLDecayAcceleration = .125;
+	this.pushBarrierLAccelerationLimit = 2;
+	
+	this.bulletPush = 0;
+
+	this.cutsceneState = 0;
+
+	this.update = function()
+	{
+		switch(this.cutsceneState)
+		{
+			case 0:
+				ctx.drawImage(back.ground, 0+this.Xbarrier, 123, 300, 11);
+				ctx.drawImage(this.barrier, 190+this.Xbarrier, 70, 200, 64);
+				ctx.drawImage(this.barrier, -122+this.Xbarrier, 70, 200, 64);
+				
+				ctx.drawImage(clouds.image, 26, 1, 20, 16, 115+this.Xbarrier, 73, 20, 16);//Cloud
+				ctx.drawImage(this.car, 118+this.Xbarrier, 91, 70, 32);//Car
+				ctx.drawImage(myGamePiece.image, 1, 1, 20, 23, 80+this.Xbarrier, 100, 20, 23); //Player Standing
+
+				if (myGameArea.keys && myGameArea.keys[32])
+				{
+					this.cutsceneState = 1;
+					shootSound.play();
+				}
+				break;
+
+			case 1:
+				if(this.Xbarrier < 0)
+				{	
+					if(this.Xbarrier + this.XbarrierSlideFactor > 0)
+						this.Xbarrier = 0;
+					else
+					{	
+						var fraction = +((this.xbarrierOriginal-this.Xbarrier)/this.xbarrierOriginal).toFixed(12);
+						
+						if(fraction < .75)
+						{ 
+
+							if(this.XbarrierSlideFactor < this.XbarrierAccelerationLimit)
+								this.XbarrierSlideFactor += this.XbarrierAcceleration;
+							else
+								this.XbarrierSlideFactor = this.XbarrierAccelerationLimit;
+						}
+						else 
+						{
+							if(this.XbarrierSlideFactor > 0)
+								this.XbarrierSlideFactor -= this.XbarrierDecayAcceleration;
+							else
+								this.XbarrierSlideFactor = 0;
+						}
+				
+						this.Xbarrier += this.XbarrierSlideFactor;
+					}
+				}
+				
+				if(this.pushBarrierL < 65)
+				{	
+					if(this.pushBarrierL + this.pushBarrierSlideFactorL > 65)
+						this.pushBarrierL = 65;
+					else
+					{	
+						var fraction2 = +(this.pushBarrierL/65).toFixed(12);
+						
+
+						if(fraction2 < .75)
+						{ 
+							if(this.pushBarrierSlideFactorL < this.pushBarrierLAccelerationLimit)
+								this.pushBarrierSlideFactorL += this.pushBarrierLAcceleration;
+							else
+								this.pushBarrierSlideFactorL = this.pushBarrierLAccelerationLimit;
+						}
+						else 
+						{
+							if(this.pushBarrierSlideFactorL > 0)
+								this.pushBarrierSlideFactorL -= this.pushBarrierLDecayAcceleration;
+							else
+								this.pushBarrierSlideFactorL = 0;
+						}
+
+						this.pushBarrierL += this.pushBarrierSlideFactorL;
+					}
+				}
+
+				if(this.pushBarrierR < 97)
+				{	
+					if(this.pushBarrierR + this.pushBarrierSlideFactorR > 97)
+						this.pushBarrierR = 97;
+					else
+					{	
+						var fraction3 = +(this.pushBarrierR/97).toFixed(12);
+
+						if(fraction3 < .75)
+						{ 
+							if(this.pushBarrierSlideFactorR < this.pushBarrierRAccelerationLimit)
+								this.pushBarrierSlideFactorR += this.pushBarrierRAcceleration;
+							else
+								this.pushBarrierSlideFactorR = this.pushBarrierRAccelerationLimit;
+						}
+						else 
+						{
+							if(this.pushBarrierSlideFactorR > 0)
+								this.pushBarrierSlideFactorR -= this.pushBarrierRDecayAcceleration;
+							else
+								this.pushBarrierSlideFactorR = 0;
+						}
+				
+						this.pushBarrierR += this.pushBarrierSlideFactorR;
+					}
+				}
+
+				if(this.bulletPush < 201)
+					this.bulletPush += bullets.bulletSpeed;
+
+				if(this.pushBarrierR >= 97 && this.pushBarrierL >= 65 && this.Xbarrier >= 0 && this.bulletPush > 201)
+					this.cutsceneState = 2;
+
+				myGameArea.clear();
+
+				ctx.drawImage(back.ground, 0+this.Xbarrier, 123, 300, 11);
+				ctx.drawImage(this.barrier, 190+this.Xbarrier+this.pushBarrierR, 70, 200, 64);
+				ctx.drawImage(this.barrier, -122+this.Xbarrier-this.pushBarrierL, 70, 200, 64);
+				
+				ctx.drawImage(this.car, 118+this.Xbarrier, 91, 70, 32);//Car
+				ctx.drawImage(myGamePiece.image, 1, 49, 20, 23, 80+this.Xbarrier, 100, 20, 23); //Player Standing
+				ctx.drawImage(this.bullet, 99+this.Xbarrier+this.bulletPush, 108, 1, 1);
+				break;
+
+			case 2: //This is the place to do all start-of-game functions
+				gameState = 1;
+				truck.reset();
+				break;
+		}
+		
+	}
+}
+
+function gameOverButton(event)
+{
+	var x = event.pageX - myGameArea.canvas.offsetLeft; //For the Click button
+	var y = event.pageY - myGameArea.canvas.offsetTop;
+		
+	this.buttonX = 133*2;
+	this.buttonY = 47*2;
+	this.buttonSizeX = 33*2;
+	this.buttonSizeY = 24*2;
+	
+	if(y > this.buttonY && y < this.buttonY + this.buttonSizeY && x > this.buttonX && x < this.buttonX + this.buttonSizeX && myGamePiece.gameOver)
+	{
+		//RESET ALL THE VALUES HERE
+		level = 0;
+		currentBullets = totalBulletLimit;
+		totalHealthLimit = 4;
+		currentHealth = totalHealthLimit;
+		haveCarPart = false;
+		gameOverHud = false;
+		gOobject.gameOverTimer = 0;
+
+		//Clear the arrays
+		clouds.reset();
+		enemies.reset();
+		crate.reset();
+		counters.reset();
+		car.restartEngine(2);
+		truck.reset();
+		coint.reset();
+
+		myGamePiece.reset(2);
+
+		crate.firstCrate = -1;
+		
+		payphone.crateInbound = false;
+
+		//Dealing with score
+		if(score > highScore)
+			highScore = score;
+
+		score = 0;
+		
+		myGamePiece.allowInput = true; //Last thing you do.
+	}
+}
+
+function gameoverObject()
+{
+	this.button = new Image();
+	this.button.src = "Replay Button.png";
+	this.timeReference = new Date();
+	this.elapsedTime = this.timeReference.getTime();
+	this.currentTime = this.timeReference.getTime();
+	this.waitSpeed = 200;
+
+	//Resettable Object
+	this.gameOverTimer = 0;
+
+
+	this.update = function()
+	{
+		if(myGamePiece.gameOver)
+		{
+			this.timeReference = new Date();
+			this.currentTime = this.timeReference.getTime();
+
+			if(this.currentTime - this.elapsedTime > this.waitSpeed)
+			{
+				this.timeReference = new Date();
+				this.elapsedTime = this.timeReference.getTime();
+
+				if(this.gameOverTimer < 5)
+					this.gameOverTimer++;
+			}
+		}
+	
+		if(this.gameOverTimer == 5)
+		{
+			drawFont("G A M E   O V E R", 82, 30);
+			ctx.drawImage(this.button, 133, 47, 33, 24);
+		}
+	}
+}
+
+function updateGameArea() 
+{
+	switch(gameState)	
+	{	
+		case 0:
+			startImage.update();
+			break;
+
+		case 2: //Slowdown
+			if(isGoodTime(80))
+			{
+				myGameArea.clear();
+				move();	
+				myGamePiece.newPos();
+
+				//--------Background--------
+				back.drawBackground();
+				//--------Entities----------
+				car.update();
+				payphone.update();
+				counters.update();
+				crate.update();
+				myGamePiece.update();
+				bullets.update();
+				enemies.update();
+				coint.update();
+				truck.update();
+				//--------HUD---------------	
+				hud.drawHUD();
+			}
+			break;
+			
+		case 3: //Everything stop except for the car. This will happen when you watch the engine come on.
+				myGameArea.clear();
+				//move();	
+				//myGamePiece.newPos();
+
+				//--------Background--------
+				back.drawBackground();
+				//--------Entities----------
+				payphone.justDraw();
+				car.update();
+				counters.justDraw();
+				crate.justDraw();
+				//myGamePiece.justDraw(); Get the player out of the way
+				bullets.justDraw();
+				enemies.justDraw();
+				coint.justDraw();
+				//Truck not included because it should not be blocking the screen
+				//--------HUD---------------	
+				hud.drawHUD();
+			break;
+
+		case 1://GAME STATE
+			myGameArea.clear();
+			move();	
+			myGamePiece.newPos();
+
+			//--------Background--------
+			back.drawBackground();
+			//--------Entities----------
+			car.update();
+			payphone.update();
+			counters.update();
+			crate.update(); 
+			myGamePiece.update();
+			bullets.update();
+			enemies.update(); 
+			coint.update();
+			truck.update();	//The truck should be over everything.
+			//--------HUD---------------	
+			hud.drawHUD();
+			gOobject.update(); //GameOverButton
+			break;
+			
+		case 4://Player is in the car
+			myGameArea.clear();
+
+			//--------Background--------
+			back.drawBackground();
+			//--------Entities----------
+			payphone.justDraw();	//It's not going to matter here.
+			crate.update();			//If a player left a crate on screen, let them still see it.
+			enemies.update(); 		//They are still moving.	
+			car.update();			//The car is is here so that the fade out is			
+			//--------HUD---------------	
+			hud.drawHUD();
+			gOobject.update(); //GameOverButton
+			break;
+	}
+}
+
+</script>
+<style>
+#main-content
+{
+    color: #2b2b2b;
+    font-size: 1em;
+    line-height: 1.55;
+    margin: 0 auto;
+    max-width: 600px;
+   /* padding-top: 100px;*/
+    width: 100%;
+}
+
+</style>
+<div id="main-content" jstcache="0" display = "block">
+      <div class="icon icon-offline" jseval="updateIconClass(this.classList, iconClass)" alt="" jstcache="1" style="visibility: hidden;"></div>
+      <div id="main-message" jstcache="0"><font face = "Segoe UI" font = Tahoma size = "3" color = #333333>
+		<h1 jsselect="heading" jsvalues=".innerHTML:msg" jstcache="5">There is no Internet connection</h1>
+        <div id="suggestions-list" jsdisplay="(suggestionsSummaryList &amp;&amp; suggestionsSummaryList.length)" jstcache="6">
+          <p jsvalues=".innerHTML:suggestionsSummaryListHeader" jstcache="13">Try:</p>
+          <ul jsvalues=".className:suggestionsSummaryList.length == 1 ? 'single-suggestion' : ''" jstcache="14" class="">
+            <li jsselect="suggestionsSummaryList" jsvalues=".innerHTML:summary" jstcache="15" jsinstance="0">Checking the network cables, modem, and router</li><li jsselect="suggestionsSummaryList" jsvalues=".innerHTML:summary" jstcache="15" jsinstance="*1">Reconnecting to Wi-Fi</li>
+          </ul>
+        </div>
+        <div class="error-code" jscontent="errorCode" jstcache="7"><font size = "2" color = #646464>ERR_INTERNET_DISCONNECTED</font></div>
+        <div id="diagnose-frame" class="hidden" jstcache="0"></div>
+      </div></font>
+    </div>
+</body>
+</html>
