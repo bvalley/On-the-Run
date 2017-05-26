@@ -1589,8 +1589,7 @@ function coinHandler()
 				
 					this.array[x] = new coinObject(sourceX, sourceY, x, direction);
 										
-					if(myGamePiece.coins < 30)
-						this.currentCoinCount++;//How many are on screen
+					this.currentCoinCount++;//How many are on screen
 					
 					newSpotAdded = true;
 				}
@@ -1657,7 +1656,9 @@ function coinHandler()
 						&& this.array[x].y < myGamePiece.y  + myGamePiece.height 
 						&& this.array[x].y + this.array[x].height > myGamePiece.y )
 						{
-							myGamePiece.coins++;
+							if(myGamePiece.coins < 30)
+								myGamePiece.coins++;
+							
 							this.removeCoin(x);
 							
 							cointSound.currentTime = 0;
