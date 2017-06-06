@@ -292,7 +292,8 @@ function player(width, height, x, y)
 					this.timeReference = new Date();
 					this.elapsedTime = this.timeReference.getTime();
 
-					footStepSound.play();
+					if(!isPlaying(footStepSound))
+						footStepSound.play();
 										
 					if(currentBullets == 0)//With gun or without one?
 						this.spriteY = 	1;
@@ -3746,8 +3747,9 @@ function hudObject()
 				if(this.currentReloadNumber < totalBulletLimit)
 				{
 					this.currentReloadNumber++;
-					reloadSound.play();
-				
+					
+					if(!isPlaying(reloadSound))
+						reloadSound.play();
 				}
 				else
 				{
