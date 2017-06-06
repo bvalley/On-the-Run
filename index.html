@@ -3677,6 +3677,8 @@ function hudObject()
 	this.elapsedTime = this.timeReference.getTime();
     this.currentTime = this.timeReference.getTime();
 	this.elapsedReloadTime = this.timeReference.getTime();
+	this.elapsedSoundTime = this.timeReference.getTime();
+	this.reloadSFXSpeed = 110;
 	this.animationSpeed = 200;
 	this.reloadSpeed = 50;
 	this.blinkON = false;
@@ -3757,8 +3759,11 @@ function hudObject()
 				{
 					this.currentReloadNumber++;
 					
-					if(!isPlaying(reloadSound))
+					if(this.currentTime - this.elapsedSoundTime > this.reloadSFXSpeed)
+					{
+						this.elapsedSoundTime = this.timeReference.getTime();							
 						reloadSound.play();
+					}
 				}
 				else
 				{
