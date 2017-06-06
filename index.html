@@ -269,6 +269,10 @@ function player(width, height, x, y)
 		
 	*/
 	this.coins = 0;
+	
+	//For the walk SFX
+	this.elapsedWalk = this.timeReference.getTime();
+	this.walkSFXSpeed = 162;
 
 	this.update = function() 
 	{
@@ -292,9 +296,14 @@ function player(width, height, x, y)
 					this.timeReference = new Date();
 					this.elapsedTime = this.timeReference.getTime();
 
-					if(!isPlaying(footStepSound))
+					
+					if(this.currentTime - this.elapsedWalk > this.walkSFXSpeed)
+					{
+						this.elapsedWalk = this.timeReference.getTime();
 						footStepSound.play();
-										
+					}
+
+					
 					if(currentBullets == 0)//With gun or without one?
 						this.spriteY = 	1;
 					else
